@@ -1,5 +1,23 @@
 # History
 
+## 1.2.64
+
+- Push, development, the minimum dependency tests, and the binary builds
+  require `cryptography` 50.0.2 or newer. The daemon's messages about
+  X-Wing sealing give that version and the command
+  `pip install "cryptography>=50.0.2,<51"`: the startup line that says why
+  post-quantum sealing is off, the pairing and sealing refusals, and the
+  warning about paired devices that a node can't seal to.
+- cronstable requires `aiohttp` 3.14.4 or newer.
+- The glibc Linux binaries for `amd64`, `amd64v3`, `arm64`, `ppc64le`,
+  `s390x`, and `armv7` bundle CPython 3.14.8, from python-build-standalone
+  release 20261009. The `amd64v3` runtime that `docker/python_runtime.py`
+  installs for the other `amd64v3` binaries and for the `amd64v3` Docker
+  images is CPython 3.14.8 too, and the local PyInstaller image builds on
+  it.
+- The Linux builds that compile their own OpenSSL for a `cryptography`
+  source build use OpenSSL 3.5.9.
+
 ## 1.2.63
 
 - `cronstable pair` prints the iOS app's pairing QR code in the terminal, for
