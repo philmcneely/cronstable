@@ -1,5 +1,10 @@
 # History
 
+## 1.2.66
+
+- The FreeBSD binary builds link OpenSSL 3.5 from FreeBSD's `openssl`
+  package.
+
 ## 1.2.65
 
 - A run that has ended keeps its outcome until the daemon records it. A
