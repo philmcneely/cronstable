@@ -792,8 +792,8 @@ jobs:
             runner: ubuntu-26.04
             platform: linux/amd64
             image: quay.io/pypa/manylinux2014_x86_64:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-x86_64-unknown-linux-gnu-install_only.tar.gz'
-            pysha: '490953e4a7e97a6ed64d0f0bd04f2d4d9a7bb45368890d3fa32ba05d0ff5c48f'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-x86_64-unknown-linux-gnu-install_only.tar.gz'
+            pysha: '83f9cb480b702548c592443f86209cf0fc03448d90692df257f095c01791dccc'
             floor: '2.17'
             # 64-bit, little-endian, EM_X86_64.
             archspec: elf:2:1:62
@@ -807,8 +807,8 @@ jobs:
             runner: ubuntu-26.04
             platform: linux/amd64
             image: quay.io/pypa/manylinux2014_x86_64:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-x86_64_v3-unknown-linux-gnu-install_only.tar.gz'
-            pysha: '8fc4a6bd7422364d815844616de31bfb5c38743815810fd9a8a4bc278684f6fc'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-x86_64_v3-unknown-linux-gnu-install_only.tar.gz'
+            pysha: '37f748ae662fb29f7716242ea214ac7cd64cbea545eab4eb2de16ab0b1447e68'
             floor: '2.17'
             archspec: elf:2:1:62
             nacl: hard
@@ -819,8 +819,8 @@ jobs:
             runner: ubuntu-26.04-arm
             platform: linux/arm64
             image: quay.io/pypa/manylinux2014_aarch64:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-aarch64-unknown-linux-gnu-install_only.tar.gz'
-            pysha: '5bad659dc6d686b430f60104d53abfecb1cd93de37b8aaa112f10f0cea2cb655'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-aarch64-unknown-linux-gnu-install_only.tar.gz'
+            pysha: '2a99838d2ba71c91d9c72929ee73cdfad2ccd093d7746a14094f50e583989ec3'
             floor: '2.17'
             archspec: elf:2:1:183   # 64-bit, little-endian, EM_AARCH64
             nacl: hard
@@ -834,8 +834,8 @@ jobs:
             # manylinux_2_28: the only ppc64le cryptography wheel is tagged
             # manylinux_2_28, so the floor here is 2.28 (RHEL 8, Debian 10).
             image: quay.io/pypa/manylinux_2_28_ppc64le:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-ppc64le-unknown-linux-gnu-install_only.tar.gz'
-            pysha: '5b9089861601ead3af0ab4c564cecd2c02b3e6cdf2eb4ef08e1caba98311a79f'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-ppc64le-unknown-linux-gnu-install_only.tar.gz'
+            pysha: '378833ef071e097935f96ba2e1ee3fb0623f4bfd1ae69fe49bfdcee79637eb4a'
             floor: '2.28'
             archspec: elf:2:1:21    # 64-bit, little-endian, EM_PPC64
             nacl: soft
@@ -847,8 +847,8 @@ jobs:
             platform: linux/s390x
             qemu: true
             image: quay.io/pypa/manylinux2014_s390x:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-s390x-unknown-linux-gnu-install_only.tar.gz'
-            pysha: '8ceecd7af302de3f6e6c4564dd671e4d1fa3a2a69f7d40075c75a2747d6ceacf'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-s390x-unknown-linux-gnu-install_only.tar.gz'
+            pysha: 'e7dec125d83b556789f6b4a3bdadf60d2c18b0ad517bd30620d90651b7cb403f'
             floor: '2.17'
             archspec: elf:2:2:22    # 64-bit, BIG-endian, EM_S390
             nacl: soft
@@ -865,8 +865,8 @@ jobs:
             qemu: true
             # No manylinux2014 armv7l image exists; this one sets a 2.31 floor.
             image: quay.io/pypa/manylinux_2_31_armv7l:2026.08.15-1
-            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260814/cpython-3.14.7+20260814-armv7-unknown-linux-gnueabihf-install_only.tar.gz'
-            pysha: 'fc000e5c8651aaa81113aa55868300ebb9debff71d6d96b2a841f589d5057668'
+            pyurl: 'https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.14.8+20261009-armv7-unknown-linux-gnueabihf-install_only.tar.gz'
+            pysha: '803714458e62af8a78f33d4b1ddd83fad35ccc1c313e2214ac0fb3f85b364e2f'
             floor: '2.31'
             archspec: elf:1:1:40    # 32-bit, little-endian, EM_ARM
             # Hard-float, and nothing in the bundle may need above ARMv7.

@@ -59,7 +59,7 @@ def test_binary_crypto_policy_accepts_the_security_floor():
             assert row["pq"] == ("soft" if source_only else "hard")
             assert bool(row.get("pq_src")) == source_only
             spec = Requirement(floor.strip() + row.get("pqcap", ""))
-            assert "50.0.1" in spec.specifier, (name, row)
+            assert "50.0.2" in spec.specifier, (name, row)
             assert "48.0.1" not in spec.specifier, (name, row)
             if name == "binaries-windows" and source_only:
                 arch = "x86" if row["arch"] == "i686" else "arm64"
