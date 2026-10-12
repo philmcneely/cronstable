@@ -520,6 +520,7 @@ jobs:
             tests/test_web_perf_e2e.py \
             tests/test_web_prefs_e2e.py \
             tests/test_web_surfaces_e2e.py \
+            tests/test_web_e2e_helper.py \
             -v -rs --junitxml=parity-enforce.xml
           .tox/py-posix/bin/python - <<'EOF'
           import xml.etree.ElementTree as ET
@@ -3192,7 +3193,7 @@ jobs:
     continue-on-error: ${{ needs.version.outputs.perf == 'ignore' }}
     # A runtime budget; bench.py logs its ten slowest benchmarks for triage.
     # A timeout here is NOT a perf regression.
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -3207,6 +3208,9 @@ jobs:
         id: envs
         env:
           NEW_VERSION: ${{ needs.version.outputs.new }}
+          # The cryptography release that preflight resolved from the
+          # pyproject.toml requirement.
+          CRYPTOGRAPHY: ${{ needs.preflight.outputs.cryptography }}
         run: |
           set -euo pipefail
           uv venv --python 3.14 .venv-new
@@ -3217,8 +3221,11 @@ jobs:
           # delta. Hard: compare.py refuses a pairing whose sides differ in
           # orjson.
           uv pip install --python .venv-new/bin/python orjson isal
-          # pynacl on BOTH sides, hard: push.seal_500 skips without it.
-          uv pip install --python .venv-new/bin/python pynacl
+          # pynacl and cryptography on BOTH sides, hard: push.seal_500 and
+          # push.fanout_8x100 skip without the first, push.seal_xwing_500
+          # without the second.
+          uv pip install --python .venv-new/bin/python pynacl \
+            "cryptography==$CRYPTOGRAPHY"
           # Playwright for webui.* on BOTH sides: a metric that skips on one
           # side is ungated. Best-effort, but then the webui ids in
           # benchmarks/expected_gated.txt fail a release; for a transient
@@ -3237,7 +3244,8 @@ jobs:
             SETUPTOOLS_SCM_PRETEND_VERSION="$prev" \
               uv pip install --python .venv-old/bin/python /tmp/perf-baseline
             # Hard, like the current-side installs above.
-            uv pip install --python .venv-old/bin/python orjson isal pynacl
+            uv pip install --python .venv-old/bin/python orjson isal pynacl \
+              "cryptography==$CRYPTOGRAPHY"
             # The Chromium download above is shared, so this adds only the
             # Python package.
             uv pip install --python .venv-old/bin/python playwright || true

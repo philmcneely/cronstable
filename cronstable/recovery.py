@@ -21,6 +21,13 @@ class RecoveryError(Exception):
         self.message = message
 
 
+class RecoveryUnavailable(RecoveryError):
+    """A recovery request made while the daemon has no state backend."""
+
+    def __init__(self, message: str = "recovery state is unavailable") -> None:
+        super().__init__(message)
+
+
 def digest(value):
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
@@ -95,17 +102,21 @@ def plan(config, source, *, mode="failed", tasks=(), artifacts=()):
     if unknown:
         raise RecoveryError("selected tasks are absent from the configuration")
     affected = {entries[k]["id"] for k in selected}
+    # Every task downstream of a selected one runs again.  One walk of the
+    # task list builds the dependents of each task, and the closure then
+    # follows each edge once.
+    dependents = {}
+    for task in config.spec.tasks:
+        for dep in task.depends_on:
+            dependents.setdefault(dep, []).append(task.id)
     downstream = set()
-    while True:
-        more = {
-            t.id
-            for t in config.spec.tasks
-            if set(t.depends_on) & affected and t.id not in affected
-        }
-        if not more:
-            break
-        downstream.update(more)
-        affected.update(more)
+    frontier = list(affected)
+    while frontier:
+        for task_id in dependents.get(frontier.pop(), ()):
+            if task_id not in affected:
+                affected.add(task_id)
+                downstream.add(task_id)
+                frontier.append(task_id)
     selected.update(k for k, e in entries.items() if e["id"] in downstream)
     reset = {
         t.id
