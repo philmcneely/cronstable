@@ -78,9 +78,10 @@ options sit in the document and how `defaults` apply.
 ## Concurrency policy
 
 When `maybe_launch_job` runs for a job and one or more instances of that
-name are already running in this process, it logs a warning
-(`Job <name>: still running and concurrencyPolicy is <policy>`) and then acts
-according to `concurrencyPolicy`. This local check always runs first. For a
+name are already running in this process, it logs
+`Job <name>: still running and concurrencyPolicy is <policy>` and then acts
+according to `concurrencyPolicy`. It logs the line at INFO under `Allow`,
+which permits the overlap, and as a warning under `Forbid` and `Replace`. This local check always runs first. For a
 `concurrencyScope: cluster` job, a launch that clears it must then also claim
 the job's cluster slot (see
 [concurrency across a cluster](#concurrency-across-a-cluster)).

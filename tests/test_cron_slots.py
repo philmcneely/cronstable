@@ -396,8 +396,18 @@ async def test_slotlease_claim_fails_closed_when_backend_is_none():
     cron._state_configured = True
     cron.state_backend = None
     cron._state_on_unavailable = "fail-closed"
-    assert await cron._claim_cluster_slot(cron.cron_jobs["s"]) is False
+    refusals = []
+    claimed = await cron._claim_cluster_slot(cron.cron_jobs["s"], refusals)
+    assert claimed is False
     assert "s" not in cron._slot_refs
+    # a manual start answers 503 with the reason
+    assert refusals == [
+        (
+            503,
+            "job 's' cannot claim its cluster concurrency slot (the state "
+            "store is unavailable), and onStoreUnavailable is fail-closed",
+        )
+    ]
 
 
 async def test_slotlease_claim_degrades_when_locks_cannot_fence(monkeypatch):
@@ -431,8 +441,18 @@ async def test_slotlease_claim_forbid_when_peer_holds_slot(monkeypatch):
     cron.state_backend = _SlotleaseBackend(acquire=None, read=_slotlease_lease())
     seen = []
     monkeypatch.setattr(cron, "_sla_peer_owns_slot", lambda name: seen.append(name))
-    assert await cron._claim_cluster_slot(cron.cron_jobs["s"]) is False
+    refusals = []
+    claimed = await cron._claim_cluster_slot(cron.cron_jobs["s"], refusals)
+    assert claimed is False
     assert seen == ["s"]
+    # a manual start answers 409 naming the node that holds the slot
+    assert refusals == [
+        (
+            409,
+            "job 's' is running on peer (concurrencyPolicy: Forbid, "
+            "concurrencyScope: cluster)",
+        )
+    ]
 
 
 async def test_slotlease_claim_replace_spawns_pursuit(monkeypatch):
@@ -445,11 +465,15 @@ async def test_slotlease_claim_replace_spawns_pursuit(monkeypatch):
 
     monkeypatch.setattr(cron, "_pursue_replace_slot", _fake_pursue)
     monkeypatch.setattr(cron, "_sla_peer_owns_slot", lambda name: None)
-    assert await cron._claim_cluster_slot(cron.cron_jobs["s"]) is False
+    refusals = []
+    claimed = await cron._claim_cluster_slot(cron.cron_jobs["s"], refusals)
+    assert claimed is False
     pursuit = cron._slot_pursuits.get("s")
     if pursuit is not None:
         await pursuit
     assert spawned and spawned[0][0] == "s"
+    # the pursuit launches the run later, so a manual start is no refusal
+    assert refusals == []
 
 
 def _slotlease_retry_job(policy):
@@ -1139,7 +1163,7 @@ async def test_slotlease_maybe_launch_job_releases_slot_on_start_failure(
     cron = cronstable.cron.Cron(None, config_yaml=_SLOTLEASE_CLUSTER_FORBID)
     job = cron.cron_jobs["s"]
 
-    async def _claim(j):
+    async def _claim(j, refusals=None):
         return True
 
     monkeypatch.setattr(cron, "_claim_cluster_slot", _claim)
@@ -1190,7 +1214,7 @@ async def test_slotlease_maybe_launch_job_releases_slot_on_prepare_cancel(
     cron = cronstable.cron.Cron(None, config_yaml=_SLOTLEASE_CLUSTER_FORBID)
     job = cron.cron_jobs["s"]
 
-    async def _claim(j):
+    async def _claim(j, refusals=None):
         return True
 
     monkeypatch.setattr(cron, "_claim_cluster_slot", _claim)

@@ -84,7 +84,7 @@ def test_real_run_streams_into_the_drawer_and_ends(browser, tmp_path):
             # never ran: the daemon ends the tail with nothing to replay
             page.wait_for_function(
                 "document.getElementById('term').textContent"
-                ".includes('(no output captured for the latest run)')"
+                ".includes('(this job has not run yet)')"
             )
             page.click("#dRun")
             page.wait_for_function(
@@ -302,13 +302,20 @@ def test_stream_truncated_without_an_end_frame(browser, tmp_path):
 def test_end_frames(browser, tmp_path):
     with e2e.Daemon(tmp_path) as daemon:
         with e2e.open_page(browser, daemon.url) as page:
-            # end with no line: the drawer says nothing was captured
+            # end with no line and no recorded run: the job has not run
             page.faults.sse(
                 LOGS,
                 [e2e.sse_frame("end", {"reason": "no-output"})],
                 close=True,
             )
             _open_logs(page)
+            page.wait_for_selector("#term .ln.sys")
+            assert _lines(page) == [["sys", "(this job has not run yet)"]]
+            page.keyboard.press("Escape")
+            # end with no line after a run: the drawer says nothing was
+            # captured
+            page.faults.sse(LOGS, ["event: end\ndata: {}\n\n"], close=True)
+            _open_logs(page, "alpha-ok")
             page.wait_for_selector("#term .ln.sys")
             assert _lines(page) == [
                 ["sys", "(no output captured for the latest run)"]

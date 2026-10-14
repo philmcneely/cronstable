@@ -469,7 +469,9 @@ To connect the app to a server, follow these steps:
 2. Enable the [HTTP API](#http-api) on an address that your phone can reach,
    such as a LAN, Tailscale, or HTTPS address, and
    [require a token](#authentication). A phone can't reach `127.0.0.1`.
-3. Open the [web dashboard](#web-dashboard) at that address.
+3. Open the [web dashboard](#web-dashboard) at that address. On a page opened
+   at a loopback address, the panel shows no code and names the server's
+   other addresses.
 4. In the command palette (`Ctrl-K` or `⌘K`) or in settings, select
    **Pair a device**.
 5. Scan the QR code with the phone's camera, or tap **Scan QR code** in the
@@ -1626,8 +1628,12 @@ To require mutual TLS, which authenticates clients as well as encrypting
 connections, set `clientCa`. Web certificates rotate in place without a daemon
 restart. The `cronstable tui`, `cronstable mcp`, and `cronstable pair` clients
 take matching `--cacert`, `--client-cert`, `--client-key`, and `--insecure`
-flags. For how to issue the certificates, the mTLS trust model and how it
-combines with `web.authToken`, and how rotation works, see
+flags. cronstable verifies certificates in OpenSSL's strict X.509 mode on
+every Python version, so a CA certificate needs a key usage with
+`keyCertSign` and a certificate that a CA issues needs an Authority Key
+Identifier. A failed handshake logs its reason. For how to issue the
+certificates, the mTLS trust model and how it combines with
+`web.authToken`, and how rotation works, see
 [listener TLS](https://github.com/ptweezy/cronstable/wiki/Listener-TLS) in the
 wiki.
 

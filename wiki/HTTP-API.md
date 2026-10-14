@@ -629,9 +629,14 @@ not there, so the API refuses to launch it manually rather than overriding the
 config.
 
 Manual launch goes through `maybe_launch_job`, so the job's `concurrencyPolicy`
-applies. If an instance is already running, `Allow` starts another, `Forbid` does
-not start a new one (the `200` still returns), and `Replace` cancels the running
-instance(s) first. See [concurrency and timeouts](Concurrency-and-Timeouts).
+applies. If an instance is already running, `Allow` starts another, `Replace`
+cancels the running instance(s) first, and `Forbid` starts nothing and answers
+`409` with the reason in the JSON error. Under `concurrencyScope: cluster`,
+`Forbid` also answers `409` while another node holds the job's slot, and
+`Replace` answers `200` and starts the run when that node yields the slot.
+When the store that holds the slot does not answer and `onStoreUnavailable` is
+`fail-closed`, the answer is `503`. See
+[concurrency and timeouts](Concurrency-and-Timeouts).
 
 ### `POST /jobs/{name}/cancel`
 
