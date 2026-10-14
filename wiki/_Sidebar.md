@@ -44,6 +44,7 @@
   - [LAN Discovery (Bonjour/mDNS)](LAN-Discovery)
   - [Listener TLS](Listener-TLS)
   - [Calendar Export (iCal)](Calendar-Export)
+  - [Status Badges](Status-Badges)
   - [Schedule Pressure](Schedule-Pressure)
   - [Duplicate Schedule Detection](Duplicate-Schedule-Detection)
   - [Suggest a Slot](Suggest-a-Slot)

@@ -197,6 +197,23 @@ configs` / `multiple logging configs`.)
 [includes, defaults, and multi-file config](Includes-and-Defaults) and
 [logging configuration](Logging-Configuration).
 
+### An embedded status badge shows a broken image
+
+**Symptom.** A [status badge](Status-Badges) in a README, a wiki page, or a
+home dashboard shows a broken image, and `curl` on the image URL returns
+`401`.
+
+**Cause.** `web.authToken` or `web.authTokens` is configured, and the badge
+routes require the bearer token like every other data route. Image fetchers,
+such as GitHub's image proxy and the browsers that render a wiki page, can't
+send one.
+
+**Fix.** Set `web.badges.public: true` to exempt the two badge routes from
+the token; every other route stays gated. A `404` instead means that no job
+has the name in the URL, or that `web.badges: false` turned the routes off. A
+badge in a GitHub README also needs an address that the internet can reach.
+See [making badges public](Status-Badges#make-badges-public).
+
 ## Scheduling
 
 ### A job runs immediately on startup (or never runs at startup)

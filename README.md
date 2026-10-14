@@ -89,6 +89,8 @@ terminal, and iOS.
   and workflows, and monitor the cluster.
 * **HTTP API**: read job status and history, and start, cancel, or pause jobs
   (see [HTTP API](#http-api)).
+* **Status badges**: show a job's live status in a README or wiki with an SVG
+  badge (see [status badges](#status-badges)).
 * **Runtime pause and resume**: pause scheduled runs for maintenance without
   editing configuration (see
   [pausing jobs](https://github.com/ptweezy/cronstable/wiki/Pausing-Jobs)).
@@ -1493,6 +1495,30 @@ my.cron.jobs.prefix.test01.duration:3|ms
 For details, see
 [metrics with statsd](https://github.com/ptweezy/cronstable/wiki/Metrics-with-Statsd).
 
+### Status badges
+
+The [HTTP API](#http-api) serves a live SVG badge for each job, and one for
+the whole job set, in the style of the build badges on many README files:
+
+![nightly-backup: passing](https://raw.githubusercontent.com/ptweezy/cronstable/main/docs/img/badge-passing.svg)
+![cronstable: 12 passing](https://raw.githubusercontent.com/ptweezy/cronstable/main/docs/img/badge-fleet.svg)
+
+Embed a badge with Markdown that links it to the job in the dashboard:
+
+```markdown
+[![nightly-backup](https://cron.example.com/jobs/nightly-backup/badge.svg)](https://cron.example.com/#job/nightly-backup)
+```
+
+A job's badge shows a verdict such as `passing`, `failing`, `overdue`, or
+`paused`, and the fleet badge at `/badge.svg` counts the jobs in the most
+urgent state, such as `2 failing`. The command palettes of the web and
+terminal dashboards copy this Markdown for any job. On a daemon that
+requires a token, set `web.badges.public: true` so that GitHub and other
+pages can fetch the badges; every other route still requires the token. For
+every verdict, the query parameters, and caching, see
+[status badges](https://github.com/ptweezy/cronstable/wiki/Status-Badges) in
+the wiki.
+
 ## HTTP API
 
 To control cronstable remotely, add a `web` section with one or more listeners:
@@ -1520,6 +1546,7 @@ The API covers these areas:
 * Push device pairing
 * The cluster and fleet views
 * An iCal feed of upcoming runs
+* SVG status badges for a README or wiki
 
 For example, the following HTTPie command pauses a job for a two-hour
 maintenance window:

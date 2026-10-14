@@ -7,7 +7,8 @@ header, along with notifications, row state, and daemon run records.
 
 Cases cover starting jobs, pool queuing, conflicts, cancellation, pause
 notes and authors, and resuming jobs. Drawer buttons, keyboard shortcuts,
-and command palette entries must produce the same requests.
+and command palette entries must produce the same requests, and the
+palette's badge Markdown must match the terminal dashboard's.
 
 Bulk action tests cover running failed jobs, sequential requests with a
 delay between them, partial failures, stopping requests, empty job sets,
@@ -485,6 +486,51 @@ def test_keys_and_palette_send_the_same_requests(browser, tmp_path):
             page.keyboard.press("Enter")
             e2e.wait_toast(page, "started alpha-ok")
             assert _posts(page)[-1] == ("POST", "/jobs/alpha-ok/start")
+
+
+def test_palette_copies_the_badge_markdown_the_terminal_builds(
+    browser, tmp_path
+):
+    # the page's badgeMarkdown and badge.badge_markdown (the terminal
+    # dashboard's) must agree byte for byte, the percent-encoding of a
+    # name with "/" and ")" included
+    from cronstable.badge import badge_markdown
+
+    jobs = [e2e.job("team/backup (prod)"), e2e.job("alpha-ok")]
+    with e2e.Daemon(tmp_path, jobs=jobs) as daemon:
+        with e2e.open_page(
+            browser,
+            daemon.url,
+            permissions=["clipboard-read", "clipboard-write"],
+        ) as page:
+            origin = page.evaluate("location.origin")
+            for query, label, name in (
+                (
+                    "badge markdown: team",
+                    "Copy badge Markdown: team/backup (prod)",
+                    "team/backup (prod)",
+                ),
+                (
+                    "fleet badge",
+                    "Copy fleet badge Markdown",
+                    None,
+                ),
+            ):
+                page.evaluate("navigator.clipboard.writeText('')")
+                _palette(page, query)
+                page.wait_for_function(
+                    "(label) => document.querySelector("
+                    "'#paletteList .item.cur .lbl').textContent === label",
+                    arg=label,
+                )
+                page.keyboard.press("Enter")
+                e2e.wait_toast(page, "copied badge Markdown")
+                page.wait_for_function(
+                    "async () => (await navigator.clipboard.readText()) !== ''"
+                )
+                assert page.evaluate(
+                    "navigator.clipboard.readText()"
+                ) == badge_markdown(origin, name)
 
 
 # --------------------------------------------------------------------------

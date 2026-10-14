@@ -80,6 +80,8 @@ tags:
     description: Cluster, fleet, and node views.
   - name: calendar
     description: iCalendar feeds.
+  - name: badges
+    description: SVG status badges to embed in a README, a wiki, or a dashboard.
   - name: state
     description: Durable-state inspector (metadata only).
   - name: push
@@ -1015,6 +1017,80 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /badge.svg:
+    get:
+      tags: [badges]
+      summary: The fleet's status badge
+      operationId: getFleetBadge
+      description: >-
+        An SVG badge for the whole job set, such as `cronstable | 2 failing`.
+        The message counts the jobs whose own badges show the most urgent of
+        `failing`, `overdue`, and `passing`, in that order. It reads
+        `no status` when no job shows one of the three, and `no jobs` when
+        none is configured. Registered unless `web.badges: false`, and exempt
+        from the bearer token when `web.badges.public: true`. Supports
+        `ETag` / `If-None-Match` (304).
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: "#/components/parameters/BadgeLabel"
+        - $ref: "#/components/parameters/BadgeStyle"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The badge image.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "304": { description: Not modified (matching `If-None-Match`). }
+        "400":
+          description: A blank, overlong, or unprintable `label`, or an unknown `style`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/{name}/badge.svg:
+    get:
+      tags: [badges]
+      summary: One job's status badge
+      operationId: getJobBadge
+      description: >-
+        An SVG badge that shows the job's name beside its verdict: `passing`,
+        `failing`, `overdue` (an SLA check is in breach), `paused`,
+        `disabled`, `cancelled`, `skipped`, `unknown`, `running` (the job's
+        first run is in progress), or `pending` (the job has no run yet). A
+        later run in progress leaves the last verdict in place. Registered
+        unless `web.badges: false`, and exempt from the bearer token when
+        `web.badges.public: true`. Supports `ETag` / `If-None-Match` (304).
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - $ref: "#/components/parameters/JobName"
+        - $ref: "#/components/parameters/BadgeLabel"
+        - $ref: "#/components/parameters/BadgeStyle"
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: The badge image.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "304": { description: Not modified (matching `If-None-Match`). }
+        "400":
+          description: A blank, overlong, or unprintable `label`, or an unknown `style`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /state:
     get:
       tags: [state]
@@ -1729,6 +1805,23 @@ components:
       required: false
       description: The auth token, for calendar clients that cannot send a bearer header.
       schema: { type: string }
+    BadgeLabel:
+      name: label
+      in: query
+      required: false
+      description: >-
+        Text that replaces the badge's left half, which otherwise shows the
+        job's name, or `cronstable` on the fleet badge. 1 to 64 printable
+        characters.
+      schema: { type: string, minLength: 1, maxLength: 64 }
+    BadgeStyle:
+      name: style
+      in: query
+      required: false
+      description: >-
+        `flat`, with rounded corners and a soft gradient, or `flat-square`,
+        with square corners and no gradient.
+      schema: { type: string, enum: [flat, flat-square], default: flat }
     DeviceId:
       name: id
       in: path

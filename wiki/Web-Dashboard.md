@@ -614,6 +614,10 @@ reduce motion, open settings, set the access token…) and a per-job action for 
 (open its logs, run it, cancel it, copy its command, view its schedule). Type to
 filter, arrow keys to move, `Enter` to run.
 
+**Copy badge Markdown** (per job) and **Copy fleet badge Markdown** copy
+Markdown that embeds a [status badge](Status-Badges) and links it back to
+this dashboard, ready to paste into a README or a wiki page.
+
 The palette opens on top of a job drawer, a DAG drawer, the
 [live logs panel](#live-logs), or the [wallboard](#wallboard--tv-mode), and
 `Esc` closes the palette first. Seven panels cover the palette, so the

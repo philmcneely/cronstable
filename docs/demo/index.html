@@ -10452,6 +10452,7 @@ var qrcode = function() {
       // mouse-only spans -- the palette keeps both reachable by keyboard
       { ic: "❏", lbl: "Copy version", run: () => { const v = $("ver").textContent; if (v) copyText(v, "version"); } },
       { ic: "❏", lbl: "Copy job-set ID", run: () => { const id = $("jobset").dataset.full; if (id) copyText(id, "job-set ID"); } },
+      { ic: "❏", lbl: "Copy fleet badge Markdown", run: () => copyText(badgeMarkdown(null), "badge Markdown") },
       { ic: "⚙", lbl: "Open settings", run: openSettings },
       { ic: "?", lbl: "Keyboard shortcuts", hint: "?", run: openHelp },
       { ic: "⚿", lbl: "Set access token", run: () => openModal() },
@@ -10460,6 +10461,19 @@ var qrcode = function() {
       { ic: "⛁", lbl: "Toggle state inspector", run: () => $("stateBtn").click() },
       { ic: "⌕", lbl: "Focus filter", hint: "/", run: () => { closePalette(); $("search").focus(); } },
     ];
+  }
+  // Markdown that embeds a status badge (wiki: Status Badges) and links it
+  // to this dashboard: one job's badge, which opens that job's drawer, or
+  // the fleet's when name is null. The terminal dashboard builds the same
+  // text (badge.badge_markdown). enc() also encodes the !'()* that
+  // encodeURIComponent leaves, so a ")" in a name cannot end the link.
+  function badgeMarkdown(name) {
+    const enc = (s) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    const base = location.origin;
+    const alt = (name == null ? "cronstable" : name).replace(/[\\[\]]/g, "\\$&");
+    const image = name == null ? "/badge.svg" : "/jobs/" + enc(name) + "/badge.svg";
+    const link = name == null ? "/" : "/#job/" + enc(name);
+    return "[![" + alt + "](" + base + image + ")](" + base + link + ")";
   }
   function jobCommands() {
     const out = [];
@@ -10471,6 +10485,7 @@ var qrcode = function() {
       if (ctl && j.paused) out.push({ ic: "▶", lbl: "Resume: " + j.name, run: () => resumeJob(j.name) });
       else if (ctl) out.push({ ic: "⏸", lbl: "Pause: " + j.name, run: () => pauseJob(j.name) });
       out.push({ ic: "❏", lbl: "Copy command: " + j.name, run: () => copyText(j.command, "command") });
+      out.push({ ic: "❏", lbl: "Copy badge Markdown: " + j.name, run: () => copyText(badgeMarkdown(j.name), "badge Markdown") });
       out.push({ ic: "◴", lbl: "Schedule: " + j.name, run: () => openDrawer(j.name, "schedule") });
       out.push({ ic: "≋", lbl: "Tail: " + j.name, sub: "live logs", run: () => openTail([j.name]) });
     }

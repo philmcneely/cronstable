@@ -1,5 +1,22 @@
 # History
 
+## 1.2.67
+
+- The HTTP API serves SVG status badges for a README, a wiki page, or a home
+  dashboard. `GET /jobs/{name}/badge.svg` shows a job's name and its verdict,
+  such as `passing`, `failing`, `overdue`, or `paused`. `GET /badge.svg`
+  counts the jobs in the most urgent state, such as `2 failing`. The `label`
+  query parameter replaces the left-hand text, and `style` picks `flat` or
+  `flat-square`.
+- The `web.badges` option controls the badge routes, which are on by default.
+  `web.badges.public: true` serves both routes without the bearer token, so
+  that a page that embeds a badge can load the image, and every other route
+  still requires the token. `web.badges: false` turns the routes off.
+- The command palettes of the web and terminal dashboards have a
+  "Copy badge Markdown" entry for each job and a "Copy fleet badge Markdown"
+  entry. Each one copies Markdown that embeds the badge and links it to the
+  dashboard.
+
 ## 1.2.66
 
 - The FreeBSD binary builds link OpenSSL 3.5 from FreeBSD's `openssl`

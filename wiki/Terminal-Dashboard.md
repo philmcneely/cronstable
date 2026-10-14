@@ -235,8 +235,10 @@ in the palette as "Toggle compact density"). Three rows live only here:
 
 ## Clipboard
 
-The copy actions are `c` on a job, the palette's "Copy version" and
-"Copy job-set ID", and the incident writeup. Each takes two paths at
+The copy actions are `c` on a job; the palette's "Copy version",
+"Copy job-set ID", "Copy fleet badge Markdown", and per-job
+"Copy badge Markdown" (see [status badges](Status-Badges)); and the
+incident writeup. Each takes two paths at
 once: an OSC 52 escape asking the terminal emulator itself to set the
 system clipboard, plus the platform's copy tool (`clip.exe` on Windows,
 `pbcopy` on macOS, `wl-copy` or `xclip` on Linux, whichever is

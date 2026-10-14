@@ -107,6 +107,7 @@ section. `listen` is required; the rest are optional (strictyaml `Opt(...)`).
 | `tls` | map (`cert`/`key`/`clientCa`) | (none) | Certificate and key served by every `https://` listen address, plus an optional CA that makes those listeners require a client certificate (mutual TLS). `cert` and `key` are required together. The config loader validates the block and the `https://` addresses against each other at load. See [listener TLS](Listener-TLS). |
 | `ui` | bool | `true` | Serve the [web dashboard](Web-Dashboard) page at `/` (see [`GET /`](#get--the-dashboard-page)). `ui: false` exposes only the REST endpoints. |
 | `metrics` | bool or map | `true` | Serve the Prometheus exposition at `/metrics`. The map form tunes buckets or exempts the endpoint from `authToken` (see [`GET /metrics`](#get-metrics)). |
+| `badges` | bool or map | `true` | Serve the SVG status badges at `/badge.svg` and `/jobs/{name}/badge.svg`. The map form can exempt the two badge routes from `authToken` (see [`GET /badge.svg`](#get-badgesvg-and-get-jobsnamebadgesvg) and [status badges](Status-Badges)). |
 | `nodeHistory` | bool or map | `true` | Background node CPU/memory sampling that feeds [`GET /node/history`](#get-nodehistory). The map form tunes cadence and window size (see [`web.nodeHistory`](Configuration-Reference#web)). |
 | `bonjour` | bool or map | `false` | Advertise the API over mDNS; see [LAN discovery](LAN-Discovery). |
 
@@ -399,6 +400,30 @@ privacy rationale, and subscription notes, see
 ```shell
 curl "http://localhost:8080/calendar.ics?days=30"
 curl http://localhost:8080/jobs/nightly-backup/calendar.ics
+```
+
+### `GET /badge.svg` and `GET /jobs/{name}/badge.svg`
+
+SVG status badges to embed in a README, a wiki, or a dashboard,
+`Content-Type: image/svg+xml`. The per-job badge shows the job's name and a
+verdict such as `passing`, `failing`, `overdue`, or `paused`, and an unknown
+job name is a `404`. The fleet badge shows `cronstable` and counts the jobs
+in the most urgent state, such as `2 failing`.
+
+The optional `label` query parameter replaces the left-hand text (1 to 64
+printable characters), and `style` picks `flat` (the default) or
+`flat-square`. Any other value of either is a `400`. Each response carries an
+`ETag` and `Cache-Control: no-cache`, and a request whose `If-None-Match`
+matches gets `304 Not Modified`.
+
+The `web.badges` option turns the routes off (`badges: false`) or, with
+`badges.public: true`, exempts them from the bearer token so that an image
+proxy can fetch them. For the verdict table, the fleet count, and embedding,
+see [status badges](Status-Badges).
+
+```shell
+curl http://localhost:8080/jobs/nightly-backup/badge.svg
+curl "http://localhost:8080/badge.svg?label=prod&style=flat-square"
 ```
 
 ### `GET /cluster`
@@ -1426,14 +1451,17 @@ When `authToken` is set, an aiohttp middleware (`_make_auth_middleware`) require
   `WWW-Authenticate: Bearer realm="cronstable"`. Browsers show no sign-in
   dialog for the `Bearer` scheme.
 
-Two settings relax that. `web.metrics.public: true` exempts `/metrics` (and
+Three settings relax that. `web.metrics.public: true` exempts `/metrics` (and
 only `/metrics`) from the bearer token, for scrapers that cannot send
-credentials (see [`GET /metrics`](#get-metrics)). `web.anonymousScopes`
+credentials (see [`GET /metrics`](#get-metrics)). `web.badges.public: true`
+exempts the two status badge routes, `/badge.svg` and
+`/jobs/{name}/badge.svg`, for pages that embed the images (see
+[status badges](Status-Badges)). `web.anonymousScopes`
 grants named scopes (`view` only) to callers presenting no credential,
 which is how a public read-only board is served. A wrong token is still
 `401`, and everything outside the grant is `403` (see
 [public read-only access](#public-read-only-access-webanonymousscopes)).
-Without either, every route stays gated.
+Without any of them, every route stays gated.
 
 One built-in carve-out: paths ending in `.ics` (the
 [calendar feeds](Calendar-Export)) also accept the same token as a `token`

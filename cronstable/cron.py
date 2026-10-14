@@ -59,6 +59,15 @@ from cronstable import (
 )
 from cronstable._gzip import gzip_body as _gzip_body
 from cronstable._gzip import gzip_static as _gzip_static
+from cronstable.badge import (
+    BADGE_STYLES,
+    VERDICT_COLORS,
+    fleet_message,
+    job_verdict,
+    label_error,
+    render_badge,
+    resolve_badges_config,
+)
 from cronstable.config import (
     WEB_TOKEN_SCOPES,
     ClusterConfig,
@@ -370,6 +379,10 @@ TREND_SCAN_LIMIT = 5000
 JOB_TRENDS_CACHE_TTL = 5.0
 # Served without bearer auth: only the UI page, which carries no secrets.
 WEB_PUBLIC_PATHS = frozenset({"/"})
+# The status badge routes, by canonical path. web.badges.public serves them
+# without bearer auth, so a README or wiki can embed them: each badge shows
+# one name and one verdict, and every other route keeps the token gate.
+WEB_BADGE_PATHS = frozenset({"/badge.svg", "/jobs/{name}/badge.svg"})
 
 # Methods the cross-site Origin gate waves through (reads mutate nothing);
 # OPTIONS passes so the /mcp CORS preflight keeps answering.
@@ -415,10 +428,10 @@ WEB_PAIR_LINK_FALLBACK = pairlink.PAIR_LINK_FALLBACK
 # The web API's complete route table: (method, path, handler, gate).
 # `handler` names a Cron method except "mcp"-gated rows (MCPHandler);
 # `gate` marks conditionally registered groups (None, "mcp", "metrics",
-# "ui"). start_stop_web_app builds the aiohttp routes from it and
-# tests/test_openapi.py diffs it (plus _WEB_SCOPE_OVERRIDES' keys) against
-# docs/openapi.yaml. Rows keep registration order; append conditional
-# groups at the end.
+# "ui", "badges"). start_stop_web_app builds the aiohttp routes from it
+# and tests/test_openapi.py diffs it (plus _WEB_SCOPE_OVERRIDES' keys)
+# against docs/openapi.yaml. Rows keep registration order; append
+# conditional groups at the end.
 WEB_ROUTES: "tuple[tuple[str, str, str, str | None], ...]" = (
     ("GET", "/version", "_web_get_version", None),
     ("GET", "/job-set-id", "_web_job_set_id", None),
@@ -496,6 +509,8 @@ WEB_ROUTES: "tuple[tuple[str, str, str, str | None], ...]" = (
     ("OPTIONS", "/mcp", "handle_options", "mcp"),
     ("GET", "/metrics", "_web_metrics", "metrics"),
     ("GET", "/", "_web_index", "ui"),
+    ("GET", "/badge.svg", "_web_fleet_badge", "badges"),
+    ("GET", "/jobs/{name}/badge.svg", "_web_job_badge", "badges"),
 )
 
 
@@ -506,6 +521,40 @@ def _effective_web_scopes(scopes: Iterable[str]) -> "frozenset[str]":
     if effective & {"control", "approve"}:
         effective.add("view")
     return frozenset(effective)
+
+
+def _web_public_paths(
+    ui_enabled: bool,
+    metrics_config: dict[str, Any] | None,
+    badges_config: dict[str, Any] | None,
+) -> "frozenset[str]":
+    """The paths and routes an authenticated web app serves without a token.
+
+    Entries are literal paths or canonical route paths; the auth middleware
+    matches both.
+    """
+    # the UI page is served unauthenticated (it holds no data); the
+    # browser then sends the token on every data request.
+    public = set(WEB_PUBLIC_PATHS) if ui_enabled else set()
+    if metrics_config is not None and metrics_config["public"]:
+        # deliberate operator opt-out for scrapers that cannot send a
+        # bearer token; everything else stays gated.
+        public.add("/metrics")
+    if badges_config is not None and badges_config["public"]:
+        # the operator's opt-in for embedding: image fetchers (GitHub's
+        # camo, a wiki) cannot send a bearer token either.
+        public.update(WEB_BADGE_PATHS)
+    return frozenset(public)
+
+
+def _route_canonical(request) -> str | None:
+    """The matched route's canonical path, such as ``/jobs/{name}``.
+
+    ``None`` when the router matched no resource (a path about to 404),
+    and for a stand-in request that carries no route at all.
+    """
+    route = getattr(getattr(request, "match_info", None), "route", None)
+    return getattr(getattr(route, "resource", None), "canonical", None)
 
 
 def _required_web_scope(request) -> str:
@@ -835,6 +884,15 @@ WEB_SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
+}
+
+# The same defense in depth for the SVG status badges, which a browser
+# opens as documents of this origin when someone follows a badge's image
+# URL. A badge holds no script, style sheet, or link, so its policy refuses
+# everything. Operators override these through web.headers as well.
+WEB_BADGE_SECURITY_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'",
+    "X-Content-Type-Options": "nosniff",
 }
 
 
@@ -4762,6 +4820,97 @@ class Cron:
             request.match_info["name"], request
         )
 
+    def _badge_verdict(
+        self, name: str, job: JobConfig, now: datetime.datetime
+    ) -> str:
+        """The word a job's status badge shows (see badge.job_verdict).
+
+        Reads the state behind the dashboard's status column and OVERDUE
+        chip, so the badge and the dashboard agree, except that a run in
+        progress leaves the badge on the job's last verdict.
+        """
+        last = self.last_run.get(name)
+        return job_verdict(
+            enabled=job.enabled,
+            paused=self._pause_active(name, now) is not None,
+            outcome=last.outcome if last is not None else None,
+            overdue=job.has_sla
+            and any((name, check) in self._sla_state for check in SLA_CHECKS),
+            running=bool(self._row_instances(name)),
+        )
+
+    def _badge_response(
+        self, request: web.Request, label: str, message: str, color: str
+    ) -> web.Response:
+        """A status badge, with the request's ``label`` and ``style``.
+
+        The image is tagged with a hash of its bytes and marked
+        ``no-cache``, so a cache (such as the image proxy GitHub puts in
+        front of README images) checks with this daemon before it reuses
+        a stored copy, and gets a ``304`` while the badge is unchanged.
+        """
+        override = request.query.get("label")
+        if override is not None:
+            error = label_error(override)
+            if error is not None:
+                return _json_response(
+                    {"error": error}, status=400, headers=self._web_headers()
+                )
+            label = override
+        style = request.query.get("style") or BADGE_STYLES[0]
+        if style not in BADGE_STYLES:
+            return _json_response(
+                {
+                    "error": "style must be one of: {}".format(
+                        ", ".join(BADGE_STYLES)
+                    )
+                },
+                status=400,
+                headers=self._web_headers(),
+            )
+        body = render_badge(label, message, color, style).encode("utf-8")
+        # the image's own Content-Type wins, in any spelling: see
+        # _strip_content_type
+        headers = _strip_content_type(
+            self._security_headers(WEB_BADGE_SECURITY_HEADERS)
+        )
+        etag = '"' + hashlib.sha256(body).hexdigest()[:32] + '"'
+        headers["ETag"] = etag
+        headers["Cache-Control"] = "no-cache"
+        if _etag_matches(request.headers.get("If-None-Match"), etag):
+            return web.Response(status=304, headers=headers)
+        return web.Response(
+            body=body,
+            content_type="image/svg+xml",
+            charset="utf-8",
+            headers=headers,
+        )
+
+    async def _web_job_badge(self, request: web.Request) -> web.Response:
+        """One job's status badge (``GET /jobs/{name}/badge.svg``)."""
+        name = request.match_info["name"]
+        job = self.cron_jobs.get(name)
+        if job is None:
+            raise _api_error(
+                web.HTTPNotFound, "job {!r} not found".format(name)
+            )
+        verdict = self._badge_verdict(
+            name, job, get_now(datetime.timezone.utc)
+        )
+        return self._badge_response(
+            request, name, verdict, VERDICT_COLORS[verdict]
+        )
+
+    async def _web_fleet_badge(self, request: web.Request) -> web.Response:
+        """The fleet's status badge (``GET /badge.svg``)."""
+        # one instant for the whole pass, as jobs_payload reads it
+        now = get_now(datetime.timezone.utc)
+        message, color = fleet_message(
+            self._badge_verdict(name, job, now)
+            for name, job in self.cron_jobs.items()
+        )
+        return self._badge_response(request, "cronstable", message, color)
+
     async def start_job_by_name(self, name: str) -> str | None:
         """Launch a job now (`POST /jobs/{name}/start`, MCP `cron_run_job`).
 
@@ -5669,14 +5818,17 @@ class Cron:
         headers = self._web_headers() if ex.status == 409 else None
         return _http_for_action_error(ex, headers)
 
-    def _security_headers(self) -> dict[str, str]:
-        """Security headers for the dashboard HTML page.
+    def _security_headers(
+        self, defaults: dict[str, str] = WEB_SECURITY_HEADERS
+    ) -> dict[str, str]:
+        """Security headers for a document this origin serves.
 
-        Secure defaults (CSP, anti-clickjacking, nosniff) with any operator
-        ``web.headers`` merged on top, so an operator who deliberately sets one
-        of these (e.g. a relaxed CSP or framing policy) still wins.
+        Secure ``defaults`` (unless a caller passes its own, the dashboard
+        HTML page's CSP, anti-clickjacking, and nosniff) with any operator
+        ``web.headers`` merged on top, so an operator who deliberately sets
+        one of these (e.g. a relaxed CSP or framing policy) still wins.
         """
-        headers = dict(WEB_SECURITY_HEADERS)
+        headers = dict(defaults)
         custom = self._web_headers()
         if custom:
             headers.update(custom)
@@ -7557,6 +7709,7 @@ class Cron:
         if start_wanted and not tls_failed and web_config is not None:
             ui_enabled = web_config.get("ui", True)
             metrics_config = resolve_metrics_config(web_config)
+            badges_config = resolve_badges_config(web_config)
             # Envelope first, so it is outermost and wraps the errors the
             # origin/auth middlewares below raise as well as the router's
             # own 404/405 (see _error_envelope_middleware, which carries its
@@ -7617,17 +7770,12 @@ class Cron:
                         else ""
                     ),
                 )
-                # the UI page is served unauthenticated (it holds no data); the
-                # browser then sends the token on every data request.
-                public = set(WEB_PUBLIC_PATHS) if ui_enabled else set()
-                if metrics_config is not None and metrics_config["public"]:
-                    # deliberate operator opt-out for scrapers that cannot
-                    # send a bearer token; everything else stays gated.
-                    public.add("/metrics")
                 middlewares.append(
                     self._make_auth_middleware(
                         token_table,
-                        frozenset(public),
+                        _web_public_paths(
+                            ui_enabled, metrics_config, badges_config
+                        ),
                         anonymous_scopes=anonymous_scopes,
                     )
                 )
@@ -7670,6 +7818,8 @@ class Cron:
                     if gate == "metrics" and metrics_config is None:
                         continue
                     if gate == "ui" and not ui_enabled:
+                        continue
+                    if gate == "badges" and badges_config is None:
                         continue
                     handler = getattr(self, handler_name)
                 routes.append(web.route(method, path, handler))
@@ -8993,7 +9143,13 @@ class Cron:
 
         @web.middleware
         async def auth_middleware(request, handler):
-            if public_paths and request.path in public_paths:
+            # A public entry names a literal path ("/") or a route by its
+            # canonical path ("/jobs/{name}/badge.svg"), which covers every
+            # job the route serves.
+            if public_paths and (
+                request.path in public_paths
+                or _route_canonical(request) in public_paths
+            ):
                 return await handler(request)
             # CORS preflights pass without a token: the Fetch standard
             # strips credentials from them, and a preflight response

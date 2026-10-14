@@ -57,6 +57,7 @@ from typing import (
 )
 
 from cronstable import _cliargs
+from cronstable.badge import badge_markdown
 from cronstable.cronexpr import LOCAL_ZONE, CronTab
 from cronstable.croninfo import (
     Finding,
@@ -5004,6 +5005,11 @@ class AppPalette(AppActions):
             ("▮", "Toggle startup checks", self._toggle_boot),
             ("❏", "Copy version", lambda: self._copy_chip(self.version)),
             ("❏", "Copy job-set ID", lambda: self._copy_chip(self.job_set_id)),
+            (
+                "❏",
+                "Copy fleet badge Markdown",
+                lambda: self._copy_badge_markdown(None),
+            ),
             ("⚙", "Open settings", lambda: self.open("settings")),
             ("?", "Keyboard shortcuts", lambda: self.open("help")),
             ("⚿", "Set access token", self._open_token),
@@ -5078,6 +5084,13 @@ class AppPalette(AppActions):
                     "❏",
                     "Copy command: %s" % name,
                     functools.partial(self._copy_job_command, name),
+                )
+            )
+            out.append(
+                (
+                    "❏",
+                    "Copy badge Markdown: %s" % name,
+                    functools.partial(self._copy_badge_markdown, name),
                 )
             )
             out.append(
@@ -5220,6 +5233,14 @@ class AppPalette(AppActions):
         job = self.by_name.get(name)
         if job:
             self.copy_command(job)
+
+    def _copy_badge_markdown(self, name: str | None) -> None:
+        """Copy Markdown that embeds a status badge, as the page does.
+
+        ``name`` picks one job's badge, and ``None`` the fleet's.
+        """
+        copy_to_clipboard(self.term, badge_markdown(self.api.url, name))
+        self.toast("ok", "❏ copied badge Markdown")
 
     def _open_token(self) -> None:
         self.open("token")

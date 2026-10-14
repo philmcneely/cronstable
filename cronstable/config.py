@@ -1229,6 +1229,17 @@ CONFIG_SCHEMA = EmptyDict() | Map(
                         Opt("durationBuckets"): Seq(Float()),
                     }
                 ),
+                # SVG status badges at GET /badge.svg and
+                # GET /jobs/{name}/badge.svg (default on). The map form can
+                # make them public (no authToken), so a README or wiki can
+                # embed them. See cronstable/badge.py.
+                Opt("badges"): Bool()
+                | Map(
+                    {
+                        Opt("enabled"): Bool(),
+                        Opt("public"): Bool(),
+                    }
+                ),
                 # node CPU/memory history ring for the dashboard's node chart
                 # (GET /node/history). On by default; the map form tunes
                 # cadence and window size.
