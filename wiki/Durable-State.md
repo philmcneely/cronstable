@@ -291,7 +291,9 @@ Every finished run is appended to the job's `runs/<job>` stream (outcome,
 timestamps, duration, exit code: the same shape as `GET /jobs/{name}/runs`),
 pruned to `maxRunsPerJob`. This ledger is the substrate everything else on
 this page reads: the catch-up watermark, the depends-on-past gate, and the
-trends endpoint.
+trends endpoint. A run of a job with [`resourceLimits`](Resource-Limits)
+also carries its `limits` record (the caps, whether they applied, and the
+kernel's counters), so the dashboards still mark cap hits after a restart.
 
 On the first successful backend start of a process, the in-memory run history
 is **rehydrated** from the ledger once: the [web dashboard](Web-Dashboard)'s

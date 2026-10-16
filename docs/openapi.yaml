@@ -337,7 +337,7 @@ paths:
         - $ref: "#/components/parameters/JobName"
         - name: limit
           in: query
-          description: Number of recent monitored runs to include (clamped).
+          description: Number of recent monitored or capped runs to include (clamped).
           schema: { type: integer }
         - name: runs
           in: query
@@ -354,8 +354,19 @@ paths:
                   name: { type: string }
                   monitored: { type: boolean }
                   interval: { type: number, nullable: true }
+                  limits:
+                    allOf: [{ $ref: "#/components/schemas/ResourceLimits" }]
+                    nullable: true
+                    description: The job's `resourceLimits`, or null.
                   live: { type: array, items: { type: object, additionalProperties: true } }
-                  runs: { type: array, items: { type: object, additionalProperties: true } }
+                  runs:
+                    type: array
+                    description: >-
+                      Recent finished runs, oldest first, that were monitored
+                      or capped (the `JobRun` shape with its chart series).
+                      `resources` is null for a capped run without
+                      monitoring.
+                    items: { type: object, additionalProperties: true }
                 additionalProperties: true
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2220,7 +2231,77 @@ components:
         paused:
           allOf: [{ $ref: "#/components/schemas/Pause" }]
           nullable: true
+        limits:
+          allOf: [{ $ref: "#/components/schemas/ResourceLimits" }]
+          description: The job's `resourceLimits`; present only when set.
       required: [name, enabled, schedule, running]
+      additionalProperties: true
+
+    ResourceLimits:
+      type: object
+      description: A job's configured caps. A null cap is uncapped.
+      required: [cpu, memory_bytes, processes, required]
+      properties:
+        cpu: { type: number, nullable: true, description: CPUs. }
+        memory_bytes: { type: integer, format: int64, nullable: true }
+        processes: { type: integer, nullable: true }
+        required: { type: boolean }
+
+    LimitsRecord:
+      type: object
+      description: >-
+        A run's caps and what the kernel recorded. `peak_memory_bytes` is
+        the figure the memory cap is measured on (cgroup `memory.peak`, or
+        a Job Object's commit charge), not the sampled RSS.
+      required: [enforced]
+      properties:
+        cpu: { type: number, nullable: true }
+        memory_bytes: { type: integer, format: int64, nullable: true }
+        processes: { type: integer, nullable: true }
+        required: { type: boolean }
+        enforced:
+          type: boolean
+          description: Every configured cap applied for the whole run.
+        mechanism:
+          type: string
+          nullable: true
+          description: "`cgroup-v2` or `job-object`; null when no cap applied."
+        unenforced:
+          type: array
+          description: The configured caps that did not apply (`cpu`, `memory`, `processes`).
+          items: { type: string }
+        reason: { type: string, nullable: true, description: Why caps did not apply. }
+        refused:
+          type: boolean
+          description: >-
+            `true` when `resourceLimits.required` refused the run: the command
+            never started, or cronstable ended its process because it could
+            not be moved into its cgroup or Job Object. A Linux process that
+            cannot join its cgroup never starts the command, so its run
+            reports the start failure's 127. A run whose process cronstable
+            ended reports the kill's exit code instead (1 on Windows, -9 on
+            Linux).
+        memory_exceeded:
+          type: boolean
+          description: The run hit its memory cap and was killed.
+        process_limit_hits: { type: integer, nullable: true }
+        peak_memory_bytes: { type: integer, format: int64, nullable: true }
+        cpu_throttled_seconds: { type: number, nullable: true, description: Linux only. }
+      additionalProperties: true
+
+    LimitsCapability:
+      type: object
+      description: Whether this host can enforce `resourceLimits`.
+      required: [available, mechanism, resources, reason, hint]
+      properties:
+        available: { type: boolean }
+        mechanism: { type: string, nullable: true }
+        resources:
+          type: array
+          description: The caps this host can apply (`cpu`, `memory`, `processes`).
+          items: { type: string }
+        reason: { type: string, nullable: true, description: Why caps are unavailable or partial. }
+        hint: { type: string, nullable: true, description: What the operator can do. }
       additionalProperties: true
 
     ResourcePool:
@@ -2311,6 +2392,13 @@ components:
         stdout_discarded: { type: integer }
         stderr_discarded: { type: integer }
         output_truncated: { type: boolean }
+        limits:
+          allOf: [{ $ref: "#/components/schemas/LimitsRecord" }]
+          nullable: true
+          description: >-
+            The check's own caps record, or null when its job has no
+            `resourceLimits`. A check killed at its memory cap is recorded
+            here; the run's `limits` covers the run's own processes.
 
     JobRun:
       type: object
@@ -2339,6 +2427,9 @@ components:
           type: object
           nullable: true
           additionalProperties: true
+        limits:
+          allOf: [{ $ref: "#/components/schemas/LimitsRecord" }]
+          description: Present only for a run of a job with `resourceLimits`.
       additionalProperties: true
 
     JobRuns:
@@ -2486,4 +2577,5 @@ components:
             proc_rss_bytes: { type: integer }
             proc_cpu_percent: { type: number }
           additionalProperties: true
+        limits: { $ref: "#/components/schemas/LimitsCapability" }
       additionalProperties: true

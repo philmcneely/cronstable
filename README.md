@@ -98,6 +98,9 @@ terminal, and iOS.
   cluster health (see [metrics](#metrics)).
 * **Per-job resource monitoring**: track CPU time and peak memory across each
   job's process tree (see [resource monitoring](#resource-monitoring)).
+* **Per-job resource limits**: cap each run's CPU, memory, and process count
+  with cgroup v2 on Linux and Job Objects on Windows (see
+  [resource limits](#resource-limits)).
 * **Built-in TLS**: serve the API over HTTPS, optionally require client
   certificates, and rotate certificates without a restart (see
   [TLS and client certificates](#tls-and-client-certificates)).
@@ -1337,10 +1340,48 @@ templates, so a failure alert can show how large the run was. With a
 survive restarts.
 
 Resource monitoring only observes: it never changes whether a run succeeds or
-fails. It's off by default and adds no overhead when it's off. Because the
-numbers are sampled, figures for short runs are approximate. To tune the
-sampling interval and chart history, or to monitor DAG tasks and whole nodes,
-see [resource monitoring](https://github.com/ptweezy/cronstable/wiki/Resource-Monitoring).
+fails. To cap a job's CPU, memory, or process count, see
+[resource limits](#resource-limits). Monitoring is off by default and adds no
+overhead when it's off. Because the numbers are sampled, figures for short runs
+are approximate. To tune the sampling interval and chart history, or to monitor
+DAG tasks and whole nodes, see
+[resource monitoring](https://github.com/ptweezy/cronstable/wiki/Resource-Monitoring).
+
+### Resource limits
+
+To bound what each run of a job can use, set `resourceLimits` on the job, as in
+the following example, or under `defaults:` to cap every job:
+
+```yaml
+jobs:
+  - name: nightly-model-refresh
+    command: python -m models.refresh
+    schedule: "0 4 * * *"
+    resourceLimits:
+      cpu: 1.5        # CPUs, like docker run --cpus
+      memory: 512M    # powers of 1024
+      processes: 64
+```
+
+The kernel enforces the caps across the run's whole process tree. A run at its
+CPU cap runs more slowly, and a run at its process cap cannot start more
+processes. A run that goes over its memory cap is killed with every process it
+started and fails with `memory limit exceeded (512 MiB)`. The dashboards, the
+run history, and Prometheus metrics show each job's caps and whether its runs
+hit them.
+
+On Linux, each capped run gets its own cgroup (cgroup v2), which needs a cgroup
+delegated to cronstable. The packaged systemd unit sets `Delegate=memory pids`
+and `OOMPolicy=continue`, so memory and process caps work with no setup, and
+CPU caps need `Delegate=yes` in a drop-in. In a container, cronstable needs
+root and a writable cgroupfs, in the container's own cgroup namespace or in a
+container cgroup that the runtime delegated; the published images run as a
+non-root user, so capped jobs run uncapped there. On Windows, each capped run
+gets its own Job Object, with no setup. macOS, the BSDs, and illumos cannot
+enforce caps. Where the host cannot enforce a cap, the run goes ahead without
+it, the daemon logs a warning, and the run record says so. With
+`required: true`, the run fails instead. For details, see
+[resource limits](https://github.com/ptweezy/cronstable/wiki/Resource-Limits).
 
 ## Reporting and metrics
 

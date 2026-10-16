@@ -1,5 +1,31 @@
 # History
 
+## 1.2.68
+
+- A job's `resourceLimits` caps the CPU, memory, and process count of each of
+  its runs, such as `cpu: 1.5`, `memory: 512M`, and `processes: 64`. The caps
+  use cgroup v2 on Linux and Job Objects on Windows, and DAG tasks and verify
+  checks take them too.
+- A run that goes over its memory cap is killed with every process it
+  started and fails with `memory limit exceeded (512 MiB)`. A forced cancel of
+  a capped run reaches processes that left its process group.
+- Where the host cannot enforce a cap, as on macOS, the BSDs, and illumos, the
+  run goes ahead without it, the daemon logs a warning, and the run record
+  says so. With `resourceLimits.required: true`, the run fails instead.
+- The systemd unit in the `.deb` and `.rpm` packages sets
+  `Delegate=memory pids`, so memory and process caps work, and cronstable
+  and its jobs share CPU with the other system services by nice value. CPU
+  caps need `Delegate=yes` in a drop-in from `systemctl edit cronstable`.
+  With `OOMPolicy=continue`, the service keeps running when a run is killed
+  at its memory cap.
+- With `Delegate=yes`, while a job has a `cpu` cap, every run on Linux gets
+  a cgroup whose CPU weight follows its `priority`.
+- The dashboards, the HTTP API, Prometheus, statsd, and report templates show
+  each job's caps, whether a run's caps applied, and memory-cap kills. The
+  dashboards also mark a run whose verify check was killed at its memory cap.
+- The terminal dashboard's Resources tab shows the live CPU and memory of a
+  running job.
+
 ## 1.2.67
 
 - The daemon serves status badges for READMEs, wikis, and home dashboards.

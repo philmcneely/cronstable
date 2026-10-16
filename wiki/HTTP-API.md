@@ -598,9 +598,9 @@ any run/skip decision, and a malformed or hostile peer payload degrades to
 
 The serving node's **live** CPU and memory, sampled fresh per request (this
 drives the dashboard header's node meter). Returns the node identity
-(`node_name`) and a `resources` object with `cpu_percent`, `cpu_count`,
+(`node_name`), a `resources` object with `cpu_percent`, `cpu_count`,
 `mem_percent`, `mem_used_bytes`, `mem_total_bytes`, `proc_rss_bytes`, and
-`proc_cpu_percent`.
+`proc_cpu_percent`, and a `limits` object.
 
 `node_name` is the cluster node name when clustered, else the hostname.
 `cpu_percent` / `mem_percent` are whole-host usage. `proc_rss_bytes` /
@@ -622,6 +622,24 @@ Memory and CPU switch over independently: a container with only a memory limit
 still reports host-wide CPU. Unlimited cgroups, cgroup v1 hosts, and non-Linux
 platforms report whole-host numbers as before, and the response shape never
 changes.
+
+**Resource limits.** `limits` says whether this host can enforce
+[`resourceLimits`](Resource-Limits), and is always present:
+
+| Field | Meaning |
+| --- | --- |
+| `available` | `true` when the host can cap runs. |
+| `mechanism` | `cgroup-v2` (Linux), `job-object` (Windows), or `null`. |
+| `resources` | The caps the host can apply, in `cpu`, `memory`, `processes` order. A host that lacks a controller lists fewer. |
+| `reason` | Why caps are unavailable or partial, or `null`. |
+| `hint` | What to change on the host, or `null`. |
+
+Until a configuration with caps is applied, `limits` is a cached read-only
+probe. After that, it is the result of the daemon's setup. On Windows,
+`memory` leaves `resources` once the Job Object watcher thread stops (see
+[Windows behavior](Resource-Limits#windows-behavior)). The fields match the
+warning the daemon logs (see
+[caps are not enforced](Troubleshooting#caps-are-not-enforced)).
 
 ### `POST /jobs/{name}/start`
 
@@ -732,7 +750,7 @@ the endpoint the [web dashboard](Web-Dashboard) polls.
 | `never_fires` | `true` when the job is enabled but its crontab has no future occurrence (a fixed past year, an impossible date), distinguishing the dead-schedule `scheduled_in: null` from the running/disabled ones. See [schedule linting](Schedule-Linting). |
 | `schedule_findings` | The [schedule linter's](Schedule-Linting) advisory findings for this crontab, each `{code, level, message}` (empty for a clean schedule). Computed once at config load, in the job's own time zone. |
 | `schedule_resolved` | Present only for [`H` hashed schedules](Hashed-Schedules): the plain expression the `H` items resolved to for this job, so clients can compute previews while displaying the `H` the user wrote. |
-| `last_run` | The most recent finished run (`outcome`, `exit_code`, `started_at`, `finished_at`, `duration`, `fail_reason`, `skip_reason`, `resources`, and `ranAt` on a run that was not `skipped`), or `null` if the job has not run yet. One exception: a run in progress when this host crashed is reported here as `unknown` even though it never finished. It stands at the instant it started, so a run that finished while it was still going can carry a later `finished_at`. The crash stays visible instead of hidden behind whatever outlived it. |
+| `last_run` | The most recent finished run (`outcome`, `exit_code`, `started_at`, `finished_at`, `duration`, `fail_reason`, `skip_reason`, `resources`, `ranAt` on a run that was not `skipped`, and [`limits`](#get-jobsnameruns) on a run that had caps), or `null` if the job has not run yet. One exception: a run in progress when this host crashed is reported here as `unknown` even though it never finished. It stands at the instant it started, so a run that finished while it was still going can carry a later `finished_at`. The crash stays visible instead of hidden behind whatever outlived it. |
 | `history` | Compact oldest-first tail of recent runs (`outcome` and `duration` only), sized for the dashboard's inline sparkline. Full per-run detail comes from `/jobs/{name}/runs`, whose ordering note covers this tail too. |
 | `paused` | Always present: the active [runtime pause](Pausing-Jobs), `{since, until, note, by, channel}` (ISO-8601 instants), or `null` when the job is not paused. |
 | `sla` | Present only for jobs with a configured [`sla:` block](Late-Run-Detection): `{thresholds, state, breaches}`, where `thresholds` holds the non-null threshold keys, `state` is `"ok"` or `"late"`, and `breaches` lists each latched check as `{check, since, observed_seconds, threshold_seconds}` (`observed_seconds` re-measured at payload time). |
@@ -740,6 +758,7 @@ the endpoint the [web dashboard](Web-Dashboard) polls.
 | `rebootPending` | Present (as `true`) only for a deferred `@reboot` one-shot awaiting its boot run (the cluster had not elected an owner at boot, or a pause is holding it), so a client can tell "pending boot run" from "already ran". |
 | `concurrencyScope`, `slot` | Present only for `concurrencyScope: cluster` jobs: the literal scope, and `slot` as `{held, holder, refs}`: whether this node holds the job's [cluster-wide concurrency slot](Clustering-and-Leader-Election) lease, the holding node's name (`null` when unheld), and how many live instances reference it. |
 | `priority` | Present only when the job sets a non-default [scheduling priority](Commands-and-Environment#priority): one of `idle`, `below-normal`, `above-normal`, `high`. A job at the default level (`normal`, the one level never applied) carries no key. |
+| `limits` | Present only when the job sets [`resourceLimits`](Resource-Limits): `{cpu, memory_bytes, processes, required}`, the configured caps, with `cpu` in CPUs and `memory_bytes` in bytes. An unset cap, or one set to `max`, is `null`. |
 | `clusterPolicy`, `clusterOwner` | Present only when leader election is configured: the job's [cluster policy](Clustering-and-Leader-Election#per-job-policy), and, under `distribution: spread` for leader-gated jobs, the node that owns the job (`null` when there is no quorum). |
 | `verification` | Present only when the job configures [result verification](Result-Verification): `{configured, running}`, where `running` says whether verification of a running instance is in progress. |
 | `pool` | Present only when the job belongs to a [resource pool](Resource-Pools): `{name, slots, priority}`, plus `queued` (the job's waiting entries, in queue order). When pool state cannot be read or written (the cases where `GET /pools` answers `503`; see [Enabling the API](#enabling-the-api)), the response is still a `200`, and the `pool` object of each pooled job carries `queueUnavailable: true` and no `queued` list. |
@@ -817,6 +836,32 @@ is `null` unless the job opted into
 [`monitorResources`](Resource-Monitoring), in which case it is
 `{cpu_user_seconds, cpu_system_seconds, cpu_total_seconds, max_rss_bytes,
 samples}` for that run.
+
+A run of a job with [`resourceLimits`](Resource-Limits) also carries
+`limits`: the caps it ran under and what the kernel recorded. A run without
+caps has no `limits` key.
+
+| `limits` field | Meaning |
+| --- | --- |
+| `cpu`, `memory_bytes`, `processes`, `required` | The caps the run was configured with; an unset cap is `null`. |
+| `enforced` | `true` when every configured cap applied for the whole run. |
+| `mechanism` | `cgroup-v2`, `job-object`, or `null` when no cap applied. A cap lost partway through the run counts as not applied. |
+| `unenforced`, `reason` | The caps that did not apply (`cpu`, `memory`, `processes`) and why, or `[]` and `null`. |
+| `refused` | `true` when `resourceLimits.required` refused the run: the command never started, or cronstable ended its process because the process could not be moved into its cgroup or Job Object. A Linux process that cannot join its cgroup never starts the command, so its run reports the start failure's `127`. A run whose process cronstable ended reports the kill's exit code instead: `1` on Windows, `-9` on Linux. |
+| `memory_exceeded` | `true` when the run reached its memory cap and was killed. |
+| `peak_memory_bytes` | The most memory the kernel counted for the run, the figure a memory cap is measured on: the cgroup's `memory.peak` on Linux 5.19 and later, and the job's peak commit charge on Windows. Reported for every run whose process got into its cgroup or Job Object, with or without a memory cap; with a memory cap on Windows, it is at most the cap. This figure is not RSS. |
+| `cpu_throttled_seconds` | Linux, with a CPU cap: the time the cap held the run back (`throttled_usec` in `cpu.stat`). `null` on Windows. |
+| `process_limit_hits` | With a process cap: how many process starts the cap refused (on Linux, thread starts too). Before Linux 6.11, or with the `pids_localevents` mount option, it can also count starts that a limit above the run refused (see [what each cap does](Resource-Limits#what-each-cap-does)). |
+
+A counter is `null` where the kernel does not report it. If the daemon
+cannot read the kernel's counters when the run ends, the record still
+carries the caps and `enforced`, `memory_exceeded` is `false`, and the three
+counters are `null`.
+
+The run's `limits` record covers only the run's own processes. A
+`verification` result whose check ran carries the check's own record as
+`limits`, or `null` when the job has no `resourceLimits` (see
+[verify checks and DAG tasks](Resource-Limits#verify-checks-and-dag-tasks)).
 
 For a run that the daemon records as `success`, `failure`, or `cancelled`,
 `finished_at` is the instant the run ended: when the daemon had collected
@@ -902,6 +947,7 @@ Content-Type: application/json; charset=utf-8
     "name": "test-01",
     "monitored": true,
     "interval": 1.0,
+    "limits": null,
     "live": [
         {
             "started_at": "2026-07-07T12:00:00+00:00",
@@ -939,17 +985,24 @@ RSS per merged bucket, so spikes survive), so a series is bounded no matter
 how long the run.
 
 `live` carries the run-so-far series of each currently-running monitored
-instance plus its `current` instantaneous readings; `runs` the recorded series
-of recent finished **monitored** runs (oldest first, unmonitored runs are
+instance plus its `current` instantaneous readings; `runs` the recent
+finished runs that were **monitored or capped** (oldest first, other runs are
 omitted; the ordering note on
 [`GET /jobs/{name}/runs`](#get-jobsnameruns) applies to this array too),
 capped by the `limit` query parameter (default 20, clamped to the retained
 history; `runs` is its legacy alias, read when `limit` is absent).
 
+`limits` is the job's [`resourceLimits`](Resource-Limits) caps, the same
+object as `limits` on [`GET /jobs`](#get-jobs), or `null` when the job sets
+none. A capped run keeps its `limits` record in `runs`, so a client can mark
+cap hits on the charts. A capped job without `monitorResources` still lists
+its capped runs, each with `resources: null`.
+
 With a [durable state store](Durable-State), run series survive restarts
-inside the run ledger records. `monitored: false` with empty lists means the
-job never opted into `monitorResources` (distinguishable from "monitored but
-no data yet").
+inside the run ledger records. `monitored` is the job's `monitorResources`
+setting. `monitored: false`, `limits: null`, and empty lists mean the job set
+neither `monitorResources` nor `resourceLimits` (distinguishable from
+"monitored but no data yet").
 
 ### `GET /node/history`
 

@@ -51,6 +51,7 @@ from cronstable import (
     _gzip,
     _json,
     discovery,
+    limits,
     netutil,
     pairlink,
     platform,
@@ -80,6 +81,7 @@ from cronstable.config import (
     MCPConfig,
     StateConfig,
     WebConfig,
+    capped_jobs,
     cluster_config_warnings,
     entry_read_waits,
     parse_config_string,
@@ -125,6 +127,7 @@ from cronstable.job import (
     schedule_string,
 )
 from cronstable.leadership import LeadershipBackend, make_backend
+from cronstable.limits import LimitsRecord
 from cronstable.pools import (
     POOL_UNAVAILABLE,
     PoolError,
@@ -960,6 +963,9 @@ class JobRunInfo:
     verification: dict[str, Any] | None = None
     # why a synthetic "skipped" row exists ("paused"); None for real runs.
     skip_reason: str | None = None
+    # the run's caps and what the kernel recorded; None without
+    # resourceLimits. The reaper fills it from the finished RunningJob.
+    limits: LimitsRecord | None = None
     # Elapsed seconds, derived once at construction (both operands are
     # immutable). compare=False keeps equality over the recorded fields.
     duration: float | None = field(default=None, init=False, compare=False)
@@ -1011,6 +1017,8 @@ class JobRunInfo:
             data["ranAt"] = finished
         if self.verification is not None:
             data["verification"] = self.verification
+        if self.limits is not None:
+            data["limits"] = self.limits.to_dict()
         return data
 
 
@@ -1462,6 +1470,8 @@ def _job_run_info_from_dict(
         verification=rec.get("verification")
         if isinstance(rec.get("verification"), dict)
         else None,
+        # None for an absent or malformed record, like the resources parse
+        limits=LimitsRecord.from_dict(rec.get("limits")),
     )
 
 
@@ -2451,6 +2461,10 @@ class Cron:
         # The count when reload_config last went past its skip: a higher
         # _reload_requests is a request that no parse has answered.
         self._reload_answered = 0
+        # The applied config whose resourceLimits the run loop has yet to
+        # converge (see _converge_limits). Set in both the config_yaml
+        # (test) path below and _apply_reload.
+        self._limits_owed: CronstableConfig | None = None
         # Run the Windows service host's ownership check before every
         # file parse, including startup (see _parse_guarded).
         self._config_guard = config_guard
@@ -2500,6 +2514,7 @@ class Cron:
             self.cron_jobs = {job.name: job for job in config.jobs}
             self.cron_dags = {d.name: d for d in config.dags}
             self._notify_config = config.notify_config
+            self._limits_owed = config
             self._job_set_id_cache = None
             self._needs_subminute_cache = None
             self._job_pos_cache = None
@@ -2769,6 +2784,10 @@ class Cron:
                     config = await self.reload_config()
                     self._log_job_set_id()
                     await self.start_stop_cluster(config.cluster_config)
+                    # after start_stop_cluster, so nothing yields between
+                    # the job-set change and the election gate; before
+                    # _service_slots launches runs
+                    await self._converge_limits()
                     # gossip observability overlay; after start_stop_cluster
                     # so the election backend exists first.
                     await self.start_stop_observability(config.cluster_config)
@@ -3312,6 +3331,8 @@ class Cron:
         self.pool_config = config.pools
         # read live by _dispatch_notify, so a reload takes effect at once.
         self._notify_config = config.notify_config
+        # the run loop converges the caps off this thread
+        self._limits_owed = config
         # Retire the Event Log writer of a source this config no longer
         # names. A writer is an OS thread plus a registered source handle,
         # keyed on a config STRING rather than on anything that dies by
@@ -3407,6 +3428,28 @@ class Cron:
         # future fire and could skip one on this reload's minute boundary).
         self._refresh_schedule(get_now(datetime.timezone.utc), old_jobs)
         return config
+
+    async def _converge_limits(self) -> None:
+        """Hand the caps of the config applied last to the limits manager.
+
+        Once per applied config, on a worker thread (the Linux setup moves
+        processes between cgroups), when a job or DAG task sets
+        ``resourceLimits`` or cpu weighting is on and has to turn off.
+        Never raises.
+        """
+        config, self._limits_owed = self._limits_owed, None
+        if config is None:
+            return
+        capped = capped_jobs(config)
+        if not capped and not limits.weighting_active():
+            return
+        try:
+            await asyncio.to_thread(limits.get_manager().converge, capped)
+        except Exception:  # noqa: BLE001 - never stops a config apply
+            logger.warning(
+                "could not check whether resource limits can be enforced",
+                exc_info=True,
+            )
 
     def job_set_id(self) -> str:
         """Order-independent fingerprint of the currently-loaded job set.
@@ -3542,6 +3585,7 @@ class Cron:
         :class:`cronstable.resources.NodeResourceSampler`.
         ``resources`` is ``null`` when sampling is unavailable (psutil could
         not read the host); the dashboard then hides the node meter.
+        ``limits`` is the host's resource-limit capability.
         """
         return _json_response(self.node_payload(), headers=self._web_headers())
 
@@ -3571,13 +3615,15 @@ class Cron:
     def node_payload(self, history: bool = False) -> dict[str, Any]:
         """This node's live CPU/memory (`GET /node`, MCP `cron_get_node`).
 
-        ``resources`` is ``None`` when sampling is unavailable.  With
-        ``history=True`` a ``history`` block (the retained ring the dashboard
-        chart uses) rides along.
+        ``resources`` is ``None`` when sampling is unavailable.  ``limits``
+        says whether this host can enforce ``resourceLimits`` (a cached,
+        read-only probe).  With ``history=True`` a ``history`` block (the
+        retained ring the dashboard chart uses) rides along.
         """
         payload: dict[str, Any] = {
             "node_name": self._node_name(),
             "resources": self._node_sampler.snapshot(),
+            "limits": limits.get_manager().capability().to_dict(),
         }
         if history:
             payload["history"] = self._node_history_block()
@@ -6338,6 +6384,9 @@ class Cron:
         # omit-when-default rule as the blocks above).
         if job.priority != platform.DEFAULT_PRIORITY:
             result["priority"] = job.priority
+        # the configured caps, only for a job that sets resourceLimits
+        if job.limits_payload is not None:
+            result["limits"] = job.limits_payload
         return result
 
     def jobs_payload(self) -> list[dict[str, Any]]:
@@ -7194,8 +7243,9 @@ class Cron:
 
         Fetched lazily when the dashboard opens the chart, never on the
         poll loop. ``live`` is the run-so-far series per running instance;
-        ``runs`` the recorded series of recent finished runs. Both empty,
-        and ``monitored`` false, for a job that never opted in.
+        ``runs`` the recent finished runs that were monitored or capped.
+        Both empty, and ``monitored`` false, for a job that opted into
+        neither.
         """
         name = request.match_info["name"]
         max_runs = self._web_int_query(
@@ -7219,7 +7269,9 @@ class Cron:
         """CPU/RSS series for a job's live + recent runs, or ``None``.
 
         Behind ``GET /jobs/{name}/resources`` and MCP
-        ``cron_get_job_resources``.  ``max_runs`` caps the recorded-run tail.
+        ``cron_get_job_resources``.  ``max_runs`` caps the recorded-run tail,
+        which holds the runs with a ``resources`` or a ``limits`` record.
+        ``limits`` is the job's configured caps, or ``None``.
         """
         job = self.cron_jobs.get(name)
         if job is None:
@@ -7245,17 +7297,23 @@ class Cron:
                 }
             )
         history = list(self.run_history.get(name) or [])
-        monitored = [r for r in history if r.resource_usage is not None]
+        # capped runs stay in without monitoring, so their limits show
+        recorded = [
+            r
+            for r in history
+            if r.resource_usage is not None or r.limits is not None
+        ]
         # a positional tail of the ring, like the other chart feeds and
         # unlike the stats block's last_* fields (see _run_finish_key)
         runs = [
             r.to_dict(include_series=True)
-            for r in monitored[len(monitored) - max_runs :]
+            for r in recorded[len(recorded) - max_runs :]
         ]
         return {
             "name": name,
             "monitored": bool(job.monitorResources),
             "interval": job.monitorResourcesInterval,
+            "limits": job.limits_payload,
             "live": live,
             "runs": runs,
         }
@@ -13129,7 +13187,11 @@ class Cron:
         # every recorded run also feeds the Prometheus counters/histogram,
         # so /metrics and the run-history API always agree on outcomes.
         self.metrics.job_run_recorded(
-            name, info.outcome, info.duration, info.resource_usage
+            name,
+            info.outcome,
+            info.duration,
+            info.resource_usage,
+            limits=info.limits,
         )
         # The three watermarks below ADVANCE rather than assign, for the
         # reason last_run does (see _install_run_info): a completion can
@@ -14213,6 +14275,7 @@ class Cron:
                     fail_reason="cancelled via web UI",
                     output=job.output,
                     resource_usage=getattr(job, "resource_usage", None),
+                    limits=getattr(job, "limits_record", None),
                 ),
             )
             if self._ends_retry_sequence(job):
@@ -14250,6 +14313,7 @@ class Cron:
                 output=job.output,
                 resource_usage=getattr(job, "resource_usage", None),
                 verification=getattr(job, "verification", None),
+                limits=getattr(job, "limits_record", None),
             ),
         )
         self._queue_job_completion(job, failed=fail_reason is not None)

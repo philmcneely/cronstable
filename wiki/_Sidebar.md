@@ -28,6 +28,7 @@
   - [Pausing Jobs](Pausing-Jobs)
   - [Late-Run Detection (SLA)](Late-Run-Detection)
   - [Resource Monitoring](Resource-Monitoring)
+  - [Resource Limits](Resource-Limits)
   - [Durable State](Durable-State)
   - [Orchestration and DAGs](Orchestration-and-DAGs)
   - [Workflow Recovery](Workflow-Recovery)
