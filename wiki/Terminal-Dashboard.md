@@ -122,7 +122,8 @@ The TUI includes:
 - The **job drawer**: the live **Server-Sent-Events (SSE) log tail**
   (ANSI colors adapted to the theme, search, follow, wrap, timestamps,
   save-to-file), **run history** with success rate and per-run bars,
-  **resources** for monitored jobs, and the **schedule tab**, whose
+  **resources** for monitored and capped jobs (see
+  [the Resources tab](#the-resources-tab)), and the **schedule tab**, whose
   plain-English text and next-fire preview come from the daemon's own
   cron engine.
 - The **fuzzy command palette**, with the same global, per-job, and
@@ -187,6 +188,56 @@ write your clipboard with OSC 52.
 Some features stay web-only: desktop notifications (the TUI rings the
 terminal bell instead, off by default), the run ledger, and the
 pendulum wordmark.
+
+### The Resources tab
+
+The drawer's **Resources** tab lists a monitored job's recent runs and its
+live reading, and the [resource limits](Resource-Limits) of a capped job:
+
+- A job with `resourceLimits` gets a caps line at the top, such as
+  `caps  1.5 CPU · 512 MiB · 64 procs (required)`. CPU is a number of CPUs,
+  memory is in binary units like the daemon's (`512 MiB`, `1.5 GiB`), and
+  processes read `N procs` (`1 proc`). `(required)` follows when
+  `resourceLimits.required` is set, and a cap set to `max` is left out.
+- The live line, `live: <cpu%> cpu · <rss> rss`, comes from the newest
+  running instance.
+- A run's limits go in a **limits** column after **peak rss** when they fit
+  there whole. Limits that do not fit go on an indented row under the run,
+  where they get 20 more columns. A run with no usage record shows `—` in
+  the **cpu** column.
+- A job without `monitorResources` shows `this job has no resource
+  monitoring` and `(set monitorResources: true on the job)`. A capped job
+  adds a **started** / **limits** table of its recent runs below them.
+- `j`/`k` scroll the run list one run at a time and `PgUp`/`PgDn` ten runs
+  at a time. A run's indented limits row moves with its run, and the scroll
+  stops once the oldest run shows. The table of a capped job without
+  monitoring scrolls the same way.
+
+A run's limits cell lists, in this order:
+
+| Text | Meaning |
+| --- | --- |
+| `memory cap` | The run hit its memory cap and was killed. |
+| `caps off` | A cap was not enforced, refused runs included. |
+| `kernel peak <size>` | `peak_memory_bytes`: cgroup `memory.peak` on Linux, the job's peak commit charge on Windows. It is not RSS. |
+| `throttled <duration>` | Linux: the time the CPU cap held the run back, shown when above zero. |
+| `N process cap hit(s)` | How often the process cap refused a new process, shown when above zero. |
+| the reason | Why the caps were off. |
+
+A record with none of these reads `caps on`, and a list cut to fit ends in
+`…`. The **History** tab shows a run's first marker in place of its
+duration bar, in the failure color for `memory cap` and the warning color
+for `caps off`. A second marker goes after `exit N` and before the fail
+reason, as in this row detail:
+`memory cap    exit -9 · caps off · memory limit exceeded (512 MiB)`.
+
+A run whose verify check the memory cap killed gets `check memory cap`, in
+the failure color. It goes second after the run's own first marker, or
+first when the run has none, as in
+`check memory cap  exit 0 · verification failed: memory limit exceeded (96 MiB)`.
+When a History list has a marker longer than the duration bar, the marker
+slot widens on every row of that list. The **Resources** tab's limits cells
+show only the run's own record.
 
 ## Themes and accessibility
 
@@ -377,6 +428,8 @@ reconnect throttle).
   and the `p` key.
 - [Late-Run Detection](Late-Run-Detection): the `sla:` monitor behind
   the **OVERDUE** suffix.
+- [Resource Limits](Resource-Limits): the `resourceLimits` caps behind
+  the caps line and the `memory cap` and `caps off` markers.
 - [Pairing from the Terminal](Terminal-Pairing): the Pair a device panel
   and the `cronstable pair` command.
 - [MCP](MCP): access for AI agents.

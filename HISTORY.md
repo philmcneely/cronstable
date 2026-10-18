@@ -1,21 +1,16 @@
 # History
 
-## 1.2.67
+## 1.2.70
 
-- The HTTP API serves SVG status badges for a README, a wiki page, or a home
-  dashboard. `GET /jobs/{name}/badge.svg` shows a job's name and its verdict,
-  such as `passing`, `failing`, `overdue`, or `paused`. `GET /badge.svg`
-  counts the jobs in the most urgent state, such as `2 failing`. The `label`
-  query parameter replaces the left-hand text, and `style` picks `flat` or
-  `flat-square`.
-- The `web.badges` option controls the badge routes, which are on by default.
-  `web.badges.public: true` serves both routes without the bearer token, so
-  that a page that embeds a badge can load the image, and every other route
-  still requires the token. `web.badges: false` turns the routes off.
-- The command palettes of the web and terminal dashboards have a
-  "Copy badge Markdown" entry for each job and a "Copy fleet badge Markdown"
-  entry. Each one copies Markdown that embeds the badge and links it to the
-  dashboard.
+- cronstable requires `aiohttp` 3.14.4, `sentry-sdk` 2.8.0, `tzdata` 2024.1,
+  and `psutil` 5.9.0 or newer, so it installs next to packages that hold
+  those dependencies at older releases. A comment in `pyproject.toml` gives
+  the reason for each minimum, and a new release of a dependency doesn't
+  raise it.
+- The extras require `kubernetes` 27.2.0, `uvloop` 0.19.0, `orjson` 3.11.6,
+  `isal` 1.7.0, and `zeroconf` 0.149.16 or newer. Building from source
+  requires `setuptools` 83.0.0 and `setuptools_scm` 8.0.0 or newer.
+- The Nix flake builds with the `sentry-sdk` and `tzdata` that nixpkgs ships.
 - On the gossip backend, a `PreferLeader` job whose owner stops moves to a
   surviving node as soon as that node's own poll of the owner fails, even
   while its peers' last reports still list the owner. For a few poll rounds
@@ -50,6 +45,66 @@
   instance is still running or another node holds the job's cluster slot. A
   slot store that doesn't answer under `onStoreUnavailable: fail-closed` gives
   `503`. Both dashboards show the reason.
+
+## 1.2.69
+
+- Secret redaction treats a quoted value as ended only when whitespace, a
+  delimiter, or a shell metacharacter follows its closing quote. A value
+  such as `KEY="part1"part2`, which the shell reads as one word, is
+  redacted whole.
+- `import-taskscheduler` reports, and does not convert, a trigger that
+  names a week other than 1 to 4 or `Last`, a day of the month other than
+  1 to 31 or `Last`, or a one-shot start before 1970. The file it writes
+  escapes characters YAML cannot hold as written, such as a line break in
+  a task's URI or a control character in its command.
+- A classic crontab's `CRON_TZ` with a name too long for the zone file
+  lookup is reported as an unknown timezone with its file and line.
+- A configuration file that uses a sequence as a mapping key fails to load
+  with a configuration error naming the file, like any other malformed
+  file.
+
+## 1.2.68
+
+- A job's `resourceLimits` caps the CPU, memory, and process count of each of
+  its runs, such as `cpu: 1.5`, `memory: 512M`, and `processes: 64`. The caps
+  use cgroup v2 on Linux and Job Objects on Windows, and DAG tasks and verify
+  checks take them too.
+- A run that goes over its memory cap is killed with every process it
+  started and fails with `memory limit exceeded (512 MiB)`. A forced cancel of
+  a capped run reaches processes that left its process group.
+- Where the host cannot enforce a cap, as on macOS, the BSDs, and illumos, the
+  run goes ahead without it, the daemon logs a warning, and the run record
+  says so. With `resourceLimits.required: true`, the run fails instead.
+- The systemd unit in the `.deb` and `.rpm` packages sets
+  `Delegate=memory pids`, so memory and process caps work, and cronstable
+  and its jobs share CPU with the other system services by nice value. CPU
+  caps need `Delegate=yes` in a drop-in from `systemctl edit cronstable`.
+  With `OOMPolicy=continue`, the service keeps running when a run is killed
+  at its memory cap.
+- With `Delegate=yes`, while a job has a `cpu` cap, every run on Linux gets
+  a cgroup whose CPU weight follows its `priority`.
+- The dashboards, the HTTP API, Prometheus, statsd, and report templates show
+  each job's caps, whether a run's caps applied, and memory-cap kills. The
+  dashboards also mark a run whose verify check was killed at its memory cap.
+- The terminal dashboard's Resources tab shows the live CPU and memory of a
+  running job.
+
+## 1.2.67
+
+- The daemon serves status badges for READMEs, wikis, and home dashboards.
+  `GET /jobs/{name}/badge.svg` shows a job's verdict, such as `passing` or
+  `failing`, and `GET /badge.svg` counts the jobs in the most urgent state,
+  such as `2 failing`.
+- Badges are on by default. A page on another site can load them straight
+  from the daemon only with `web.badges.public: true`, which also serves
+  them without the access token. `web.badges: false` turns them off.
+- The web and terminal dashboards can copy a badge's Markdown from the
+  command palette.
+- A dashboard link to a job or a DAG, such as `/#job/nightly-backup`, opens
+  its drawer after you save an access token.
+- A `web.headers` entry replaces the dashboard page's default header of the
+  same name in any letter case.
+- cronstable requires `aiohttp` 3.14.5 or newer.
 
 ## 1.2.66
 

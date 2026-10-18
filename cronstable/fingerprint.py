@@ -392,6 +392,15 @@ def canonical_job(
             "priority": job.queuePriority,
             "timeout": job.queueTimeout,
         }
+    caps = job.resourceLimits
+    if caps is not None:
+        # normalized values, so `512M` and 536870912 hash alike
+        out["resourceLimits"] = {
+            "cpu": caps.cpu,
+            "memory": caps.memory,
+            "processes": caps.processes,
+            "required": caps.required,
+        }
     return out
 
 

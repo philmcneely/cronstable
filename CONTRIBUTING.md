@@ -233,6 +233,38 @@ version, so the `isal` half of `tests/test_gzip.py` doesn't run there. The
 On an older glibc, installing the `dev` extra builds `orjson` from source,
 which requires a Rust toolchain.
 
+### Dependency floors
+
+Each `>=` version in `pyproject.toml` is a floor: the oldest release of that
+dependency that cronstable supports. pip installs the newest release a range
+allows, so a higher floor doesn't change what a new install gets. It only
+blocks users who keep an older release because another package needs it.
+Keep each floor as low as cronstable allows, and raise one only for one of
+these reasons:
+
+- A security fix for an advisory that affects how cronstable uses the
+  dependency.
+- A bug fix, an API, or (for `tzdata`) zone data that cronstable needs.
+- A release that PyPI withdrew or that can't be imported.
+- The first release with Python 3.10 wheels, or with a wheel for every target
+  that the requirement's marker lists.
+
+Write the reason in a comment beside the requirement, and give the `dev`
+extra's copy of the requirement the same floor. A new release on its own
+doesn't move a floor. Dependabot doesn't update `requirements/min.txt`, and
+it changes a range in `pyproject.toml` only when a new release falls outside
+it. When a Dependabot alert names a floor, raise the floor, or dismiss the
+alert with the reason the advisory doesn't affect cronstable. Never lower a
+floor that a security fix set.
+
+After you change a floor, regenerate the build files and run
+`tox -e mindeps` with Python 3.10. It installs the pins in
+`requirements/min.txt` and runs the test suite on them. The `dev` extra
+doesn't install `kubernetes` or `uvloop`, so `requirements/min.txt` has no pin
+for either, and you test a change to their floors by hand. For `kubernetes`,
+run `tests/test_backend_live.py` against an API server with that release
+installed.
+
 ## Running the checks
 
 `tox` drives the source tests and static checks. Before you open a pull
@@ -331,6 +363,11 @@ regression test in the same module. Set
 `CRONSTABLE_HYPOTHESIS_PROFILE=thorough` to generate about 30 times as many
 examples.
 
+Coverage-guided fuzz targets for the same parsers are in `fuzz/`. The `fuzz`
+workflow runs them with ClusterFuzzLite on every pull request and daily on
+`main`. [fuzz/README.md](fuzz/README.md) lists what each target checks and
+shows how to run one locally.
+
 `tests/test_backend_live.py` runs the etcd and Kubernetes backends against
 real servers. Configure the servers with `CRONSTABLE_LIVE_ETCD`,
 `CRONSTABLE_LIVE_ETCD_AUTH`, or `CRONSTABLE_LIVE_K8S`; the module docstring
@@ -338,6 +375,32 @@ explains each variable. Tests skip servers that aren't configured, so a
 local run needs none of them. The `backends-live` CI job provisions all three
 configurations and sets `CRONSTABLE_LIVE_REQUIRED=1`, which turns a skip into
 a failure.
+
+`tests/test_limits_live.py` and `tests/test_cgroups_live.py` test resource
+caps against the Linux kernel. Their setup moves the test process into a
+`daemon` leaf of its cgroup, so on Linux they run only when
+`CRONSTABLE_LIMITS_LIVE=1` is set, inside a delegated cgroup v2. A systemd
+user scope provides one without root:
+
+```sh
+systemd-run --user --scope -p Delegate=yes --quiet \
+    env CRONSTABLE_LIMITS_LIVE=1 python -m pytest \
+    tests/test_limits_live.py tests/test_cgroups_live.py
+```
+
+A test skips when the cgroup can't enforce the caps it needs. For example,
+the tests that need the `cpu` controller skip in a `Delegate=memory pids`
+scope, the packaged unit's setting, and in a user scope on systemd 238 to
+251, which lacks that controller. See
+[Linux setup](https://github.com/ptweezy/cronstable/wiki/Resource-Limits#linux-setup).
+The `cgroups-live` CI job runs both files in a `Delegate=yes` cgroup and sets
+`CRONSTABLE_LIVE_REQUIRED=1`, so a test that would skip fails instead. A
+second step runs them again under `Delegate=memory pids`, in a slice of its
+own and without `CRONSTABLE_LIVE_REQUIRED`, and fails when a test skips for
+any reason other than the missing `cpu` controller. Job Objects need no
+privileges, so on Windows the live tests in `tests/test_limits_live.py` and
+`tests/test_jobobjects.py` always run, including in the ordinary Windows CI
+cells.
 
 The scheduled `nightly` workflow runs only on `main`. It runs the `deep`
 environment, the suite with `PYTHONDEVMODE=1`, and mutation tests for modules
