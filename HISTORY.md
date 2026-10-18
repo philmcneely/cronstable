@@ -1,5 +1,17 @@
 # History
 
+## 1.2.70
+
+- cronstable requires `aiohttp` 3.14.4, `sentry-sdk` 2.8.0, `tzdata` 2024.1,
+  and `psutil` 5.9.0 or newer, so it installs next to packages that hold
+  those dependencies at older releases. A comment in `pyproject.toml` gives
+  the reason for each minimum, and a new release of a dependency doesn't
+  raise it.
+- The extras require `kubernetes` 27.2.0, `uvloop` 0.19.0, `orjson` 3.11.6,
+  `isal` 1.7.0, and `zeroconf` 0.149.16 or newer. Building from source
+  requires `setuptools` 83.0.0 and `setuptools_scm` 8.0.0 or newer.
+- The Nix flake builds with the `sentry-sdk` and `tzdata` that nixpkgs ships.
+
 ## 1.2.69
 
 - Secret redaction treats a quoted value as ended only when whitespace, a

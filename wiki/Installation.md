@@ -24,12 +24,16 @@ Installing the `cronstable` distribution pulls in the following, taken from
 | Dependency | Version constraint |
 | --- | --- |
 | `strictyaml` | `>=1.7.3,<2` |
-| `aiohttp` | `>=3.14.5,<4` |
-| `sentry-sdk` | `>=2.71.0,<3` |
+| `aiohttp` | `>=3.14.4,<4` |
+| `sentry-sdk` | `>=2.8.0,<3` |
 | `aiosmtplib` | `>=5.1.3,<6` |
 | `jinja2` | `>=3.1.6,<4` |
-| `tzdata` | `>=2026.5` |
-| `psutil` | `>=7.2.2` |
+| `tzdata` | `>=2024.1` |
+| `psutil` | `>=5.9.0` |
+
+Each minimum is the oldest release that cronstable supports, so you can
+install cronstable next to packages that need an older release of a shared
+dependency.
 
 `tzdata` ships the IANA time-zone database so `zoneinfo` resolves time zones on
 minimal/slim images that do not include the system tz data. See
