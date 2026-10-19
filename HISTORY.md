@@ -1,5 +1,76 @@
 # History
 
+## 1.2.70
+
+- cronstable requires `aiohttp` 3.14.4, `sentry-sdk` 2.8.0, `tzdata` 2024.1,
+  and `psutil` 5.9.0 or newer, so it installs next to packages that hold
+  those dependencies at older releases. A comment in `pyproject.toml` gives
+  the reason for each minimum, and a new release of a dependency doesn't
+  raise it.
+- The extras require `kubernetes` 27.2.0, `uvloop` 0.19.0, `orjson` 3.11.6,
+  `isal` 1.7.0, and `zeroconf` 0.149.16 or newer. Building from source
+  requires `setuptools` 83.0.0 and `setuptools_scm` 8.0.0 or newer.
+- The Nix flake builds with the `sentry-sdk` and `tzdata` that nixpkgs ships.
+- On the gossip backend, a `PreferLeader` job whose owner stops moves to a
+  surviving node as soon as that node's own poll of the owner fails, even
+  while its peers' last reports still list the owner. For a few poll rounds
+  after a node loses its link to a peer that other nodes still reach, both
+  ends of the link can run that peer's `PreferLeader` jobs.
+- On a page opened at a loopback address, the web dashboard's Pair a device
+  panel draws no code, since a phone can't dial that address. It names any
+  listener with the page's scheme that is bound to a specific address a phone
+  can dial, and points to `cronstable pair --public-url`.
+- The web dashboard's open History tab adds each new run in place, and a
+  workflow's recovery card follows its runs until they finish. The History
+  tab of both dashboards gives `paused` as the reason for a slot that a pause
+  skipped.
+- When the daemon has recorded nothing for a job, the Logs tab of both
+  dashboards says so. The web dashboard's open Logs tab also shows a run that
+  starts and finishes between two refreshes. When failures don't correlate,
+  the verdict bar reads `no two share an exit code and reason`. A pool's
+  waiting reason reads `Needs 1 slot` for a one-slot entry, and the job
+  filter's placeholder fits beside a full toolbar.
+- An overlap that `concurrencyPolicy: Allow` permits logs at INFO, and an
+  overlap under `Forbid` or `Replace` logs a warning.
+- `web.tls.clientCa`, `cluster.tls`, the job CLI's `CRONSTABLE_STATE_CACERT`,
+  and the CLI clients' `--cacert` verify certificates in OpenSSL's strict
+  X.509 mode on every Python version, as Python 3.13 and later do by default.
+  With OpenSSL 3.0 or later, a CA certificate needs a critical
+  `basicConstraints`, a key usage, and a Subject Key Identifier, and a
+  certificate it issues needs an Authority Key Identifier. A trust file that
+  holds an intermediate CA or a single certificate trusts it directly.
+  Listener TLS lists the requirements.
+- The web, cluster, and job state API listeners log a warning with the reason
+  when a TLS handshake fails, such as a client certificate without an
+  Authority Key Identifier or a browser that rejects the listener's own
+  certificate. Each logs at most one such line a minute.
+- When `concurrencyPolicy: Forbid` starts nothing, because an instance is
+  still running or another node holds the job's cluster slot,
+  `POST /jobs/{name}/start` answers `409` with the reason, and the
+  `cron_run_job` MCP tool returns the reason as a tool error. Under
+  `onStoreUnavailable: fail-closed`, a slot store that can't be used, such as
+  one that doesn't answer within 10 seconds, gives `503`. Both dashboards show
+  the reason.
+- The `end` event of `GET /jobs/{name}/logs` carries the `started_at` of the
+  run that the stream showed.
+
+## 1.2.69
+
+- Secret redaction treats a quoted value as ended only when whitespace, a
+  delimiter, or a shell metacharacter follows its closing quote. A value
+  such as `KEY="part1"part2`, which the shell reads as one word, is
+  redacted whole.
+- `import-taskscheduler` reports, and does not convert, a trigger that
+  names a week other than 1 to 4 or `Last`, a day of the month other than
+  1 to 31 or `Last`, or a one-shot start before 1970. The file it writes
+  escapes characters YAML cannot hold as written, such as a line break in
+  a task's URI or a control character in its command.
+- A classic crontab's `CRON_TZ` with a name too long for the zone file
+  lookup is reported as an unknown timezone with its file and line.
+- A configuration file that uses a sequence as a mapping key fails to load
+  with a configuration error naming the file, like any other malformed
+  file.
+
 ## 1.2.68
 
 - A job's `resourceLimits` caps the CPU, memory, and process count of each of
