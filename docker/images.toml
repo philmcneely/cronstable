@@ -69,7 +69,7 @@ toolchain = '''
     rm -rf /var/lib/apt/lists/*
 '''
 python = "python3.13"
-runtime = "gcr.io/distroless/python3-debian13:latest@sha256:931a490beb37db6a1d137ad11ed47ae4c0d4741ca5c2285818b49e9a8ee11c56"
+runtime = "gcr.io/distroless/python3-debian13:latest@sha256:dcb4e83bc06eccbee7b626d8cc1c6177f5c3a549235e70ac6e7f8cc98f4264a1"
 entrypoint = "[\"/opt/venv/bin/cronstable\"]"
 description = "A job scheduler with retries, alerts, saved run history, workflows, and dashboards for single machines and clusters (distroless)."
 
