@@ -4733,6 +4733,9 @@ class AppActions(App):
             self.open("token")
             self.focus = "token"
             return
+        except asyncio.TimeoutError:
+            self.toast("fail", "start %s: no answer from the daemon" % name)
+            return
         except Exception as exc:  # noqa: BLE001 - toast + carry on
             self.toast("fail", "start %s: %s" % (name, exc))
             return

@@ -3449,6 +3449,14 @@ async def test_job_action_error_and_status_paths(tmp_path):
     await app.run_job("j")
     assert _msgs(app)[-1] == "start j: the store did not answer"
 
+    # a request that times out has an empty message of its own
+    async def _time_out(*a, **k):
+        raise asyncio.TimeoutError()
+
+    app.api.post = _time_out
+    await app.run_job("j")
+    assert _msgs(app)[-1] == "start j: no answer from the daemon"
+
     # cancel_job: 409 not running, other -> HTTP N
     app.toasts = []
     app.api.post = _post_status(409)

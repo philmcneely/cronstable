@@ -167,6 +167,92 @@ def test_a_run_between_two_polls_shows_in_the_open_pane(browser, tmp_path):
             assert len(page.faults.sent("GET", "/jobs/alpha-ok/logs")) == opens
 
 
+def _release_polls(page, parked):
+    page.faults.clear(r"/jobs")
+    for route in parked:
+        route.fallback()
+
+
+def _run_from_the_drawer(page, daemon, later_run):
+    """Press Run with polls parked until the run ends, then count the
+    pane's log streams once the polls resume."""
+    logs = "/jobs/alpha-ok/logs"
+
+    def opened():
+        return len(page.faults.sent("GET", logs))
+
+    parked = page.faults.hang(r"/jobs")
+    e2e.wait_until(lambda: len(parked) == 1, page)
+    opens = opened()
+    _click(page, "#dRun")
+    e2e.wait_until(lambda: opened() == opens + 1, page)
+    page.wait_for_function(
+        "document.getElementById('term').textContent.includes('alpha-out')"
+    )
+    e2e.wait_until(lambda: not daemon.jobs()["alpha-ok"]["running"])
+    page.wait_for_timeout(500)  # the stream's end event
+    if later_run:
+        # another run starts and ends before the next poll
+        daemon.run_and_wait("alpha-ok")
+    _release_polls(page, parked)
+    # the pane attaches to that run, and replays nothing for the run it
+    # streamed
+    want = opens + 1 + later_run
+    e2e.wait_until(lambda: opened() == want, page)
+    page.wait_for_timeout(2500)
+    assert opened() == want
+
+
+def test_a_run_after_a_streamed_run_shows_in_the_open_pane(browser, tmp_path):
+    with e2e.Daemon(tmp_path) as daemon:
+        with e2e.open_page(
+            browser, daemon.url, prefs={"pollMs": 1000}
+        ) as page:
+            page.faults.record()
+            _open_logs(page)
+            page.wait_for_function(
+                "document.getElementById('term').textContent"
+                ".includes('(no run recorded yet)')"
+            )
+            _run_from_the_drawer(page, daemon, later_run=False)
+            _run_from_the_drawer(page, daemon, later_run=True)
+
+
+def test_a_paused_job_keeps_the_open_pane(browser, tmp_path):
+    jobs = [e2e.job("ticker", "echo tick", schedule="* * * * * * *")]
+    with e2e.Daemon(tmp_path, jobs=jobs) as daemon:
+        with e2e.open_page(
+            browser, daemon.url, prefs={"pollMs": 1000}
+        ) as page:
+            page.faults.record()
+            _open_logs(page, "ticker")
+            page.wait_for_function(
+                "document.getElementById('term').textContent"
+                ".includes('tick')"
+            )
+            status, body = daemon.api("POST", "/jobs/ticker/pause")
+            assert status == 200, body
+            e2e.wait_until(
+                lambda: (daemon.jobs()["ticker"]["last_run"] or {}).get(
+                    "outcome"
+                )
+                == "skipped"
+            )
+            polls = len(page.faults.sent("GET", "/jobs"))
+            e2e.wait_until(
+                lambda: len(page.faults.sent("GET", "/jobs")) >= polls + 2,
+                page,
+            )
+            opens = len(page.faults.sent("GET", "/jobs/ticker/logs"))
+            # a slot skipped every second: the pane keeps the last run's
+            # output and attaches nothing
+            page.wait_for_timeout(3000)
+            assert len(page.faults.sent("GET", "/jobs/ticker/logs")) == opens
+            text = page.text_content("#term")
+            assert "tick" in text
+            assert "no output" not in text
+
+
 def test_stderr_and_stdout_are_classed_and_tabs_stop_the_tail(
     browser, tmp_path
 ):

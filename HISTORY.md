@@ -18,11 +18,12 @@
   ends of the link can run that peer's `PreferLeader` jobs.
 - On a page opened at a loopback address, the web dashboard's Pair a device
   panel draws no code, since a phone can't dial that address. It names any
-  listener bound to a specific address that a phone can dial, and points to
-  `cronstable pair --public-url`.
-- An open History tab adds each new run in place. Both dashboards give
-  `paused` as the reason for a slot that a pause skipped, and a workflow's
-  recovery card follows its runs until they finish.
+  listener with the page's scheme that is bound to a specific address a phone
+  can dial, and points to `cronstable pair --public-url`.
+- The web dashboard's open History tab adds each new run in place, and a
+  workflow's recovery card follows its runs until they finish. The History
+  tab of both dashboards gives `paused` as the reason for a slot that a pause
+  skipped.
 - When the daemon has recorded nothing for a job, the Logs tab of both
   dashboards says so. The web dashboard's open Logs tab also shows a run that
   starts and finishes between two refreshes. When failures don't correlate,
@@ -31,21 +32,27 @@
   filter's placeholder fits beside a full toolbar.
 - An overlap that `concurrencyPolicy: Allow` permits logs at INFO, and an
   overlap under `Forbid` or `Replace` logs a warning.
-- cronstable verifies certificates in OpenSSL's strict X.509 mode on every
-  Python version, as Python 3.13 and later do by default. On Python 3.10 to
-  3.12 with OpenSSL 3.0 or later, this refuses a CA certificate without a key
-  usage extension and a certificate without an Authority Key Identifier,
-  which those versions otherwise accept. It applies to `web.tls.clientCa`,
-  `cluster.tls`, the job CLI's `CRONSTABLE_STATE_CACERT`, and the CLI
-  clients' `--cacert`. Listener TLS lists the requirements.
-- A listener logs a warning with the reason when a TLS handshake fails, such
-  as a client certificate without an Authority Key Identifier. Each listener
-  logs at most one such line a minute.
-- `POST /jobs/{name}/start` and the `cron_run_job` MCP tool answer `409` with
-  the reason when `concurrencyPolicy: Forbid` starts nothing, because an
-  instance is still running or another node holds the job's cluster slot. A
-  slot store that doesn't answer under `onStoreUnavailable: fail-closed` gives
-  `503`. Both dashboards show the reason.
+- `web.tls.clientCa`, `cluster.tls`, the job CLI's `CRONSTABLE_STATE_CACERT`,
+  and the CLI clients' `--cacert` verify certificates in OpenSSL's strict
+  X.509 mode on every Python version, as Python 3.13 and later do by default.
+  With OpenSSL 3.0 or later, a CA certificate needs a critical
+  `basicConstraints`, a key usage, and a Subject Key Identifier, and a
+  certificate it issues needs an Authority Key Identifier. A trust file that
+  holds an intermediate CA or a single certificate trusts it directly.
+  Listener TLS lists the requirements.
+- The web, cluster, and job state API listeners log a warning with the reason
+  when a TLS handshake fails, such as a client certificate without an
+  Authority Key Identifier or a browser that rejects the listener's own
+  certificate. Each logs at most one such line a minute.
+- When `concurrencyPolicy: Forbid` starts nothing, because an instance is
+  still running or another node holds the job's cluster slot,
+  `POST /jobs/{name}/start` answers `409` with the reason, and the
+  `cron_run_job` MCP tool returns the reason as a tool error. Under
+  `onStoreUnavailable: fail-closed`, a slot store that can't be used, such as
+  one that doesn't answer within 10 seconds, gives `503`. Both dashboards show
+  the reason.
+- The `end` event of `GET /jobs/{name}/logs` carries the `started_at` of the
+  run that the stream showed.
 
 ## 1.2.69
 

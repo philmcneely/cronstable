@@ -169,7 +169,8 @@ can't grow the tab without limit.
 
 While the tab is open, each poll that reports a new run switches the pane to
 that run's output, including a run that started and finished between two
-polls. When the daemon has recorded nothing for the job, the pane shows
+polls. A slot that a [pause](Pausing-Jobs) skipped leaves the pane as it is.
+When the daemon has recorded nothing for the job, the pane shows
 `(no run recorded yet)`.
 
 ### History: outcomes and durations over time

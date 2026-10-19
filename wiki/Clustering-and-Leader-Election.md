@@ -628,7 +628,9 @@ On the gossip backend, two transient windows can skip a `PreferLeader` firing.
 The first follows an owner that stops. Until a surviving node's own poll of
 the stopped node fails, the survivor still sees that node agreeing and defers
 to it, so a firing due in that window runs nowhere. The window lasts up to one
-`interval` plus `connectTimeout`. Once its own poll fails, the survivor takes
+`interval` plus `connectTimeout` when the stopped node's host refuses
+connections, and up to one `interval` plus twice `connectTimeout` when the
+host doesn't answer at all. Once its own poll fails, the survivor takes
 over the stopped node's jobs, even while its peers' last reports still list
 that node. The survivor keeps setting those reports aside for
 `2 + ceil(3 × connectTimeout / interval)` of its own failed poll rounds (3 with
@@ -1047,9 +1049,16 @@ coordination. Each node acts on a view only as fresh as its last poll
 (`interval`), leaving narrow windows where behavior degrades:
 
 * **Immediately after a leader dies**, a `Leader` or `PreferLeader` firing may
-  be *skipped* until the survivors notice (up to one `interval` plus
-  `connectTimeout`) and re-elect. Under `spread`, the same holds for the jobs
-  that the dead node owned.
+  be *skipped* until the survivors notice and re-elect. Under `spread`, the
+  same holds for the jobs that the dead node owned. A `PreferLeader` survivor
+  takes over once its own poll of the dead node fails (see
+  [per-job policy](#per-job-policy) for the bound). A `Leader` survivor also
+  follows its peers' last reports, which list the dead node until each peer's
+  own poll of it fails and the survivor polls that peer again. A `Leader`
+  firing can therefore be skipped for up to about two `interval`s plus a few
+  `connectTimeout`s (about 60 to 100 seconds with the defaults). Under
+  `spread`, a peer's report can also carry the survivor's own stale view back
+  to it, which adds about one `interval`.
 
 * **A leader partitioned away while still alive** keeps electing itself on its
   last (now-stale) view until its *own* next poll fails (up to one `interval`),

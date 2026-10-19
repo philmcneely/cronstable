@@ -6441,7 +6441,7 @@ var qrcode = function() {
     drawerJob: null, tab: "logs",
     stream: null,              // AbortController for the log SSE
     streamFin: null,           // last_run.finished_at when the stream opened
-    streamLive: false,         // the stream showed a run while it ran
+    streamShown: null,         // started_at of the run the stream showed to its end
     log: { lines: [], curMatch: -1, total: 0, matchCount: 0, matchSig: null },
     prevFail: {},              // name -> finished_at of last seen failure (notifications)
     seenFirst: false,
@@ -9274,7 +9274,7 @@ var qrcode = function() {
       if (res.ok) {
         toast("ok", (res.status === 202 ? "Queued " : "▶ started ") + name);
         if (res.status === 202) loadPools();
-        if (res.status !== 202 && state.drawerJob === name) setTimeout(() => startStream(name, true, true), 250);
+        if (res.status !== 202 && state.drawerJob === name) setTimeout(() => startStream(name, true), 250);
         setTimeout(loadJobs, 300);
       } else if (res.status === 409 || res.status === 503) {
         // the daemon's reason: a disabled job, a run that Forbid holds
@@ -10333,9 +10333,10 @@ var qrcode = function() {
   // controller aborts (fetch + manual parse: EventSource cannot attach the
   // Authorization header). Serves the job log pane, the multi-tail and the
   // DAG task-log pane. hooks: line(stream, text) per output line;
-  // end(sawAnyLine, reason) per server end event (reason "no-output" = the
-  // job has no output buffer at all); err(msg) on failure, with msg null for
-  // a 401 (the re-auth flow is already driven by apiFetch's modal).
+  // end(sawAnyLine, reason, data) per server end event (reason "no-output" =
+  // the job has no output buffer at all; data is the event's whole JSON
+  // object); err(msg) on failure, with msg null for a 401 (the re-auth flow
+  // is already driven by apiFetch's modal).
   async function readSSE(path, ctrl, hooks) {
     let gotLine = false;
     try {
@@ -10361,9 +10362,9 @@ var qrcode = function() {
           if (ev === "line" && data) {
             try { const o = JSON.parse(data); gotLine = true; hooks.line(o.stream, o.line); } catch (_) {}
           } else if (ev === "end") {
-            let reason = null;
-            try { reason = (JSON.parse(data || "{}") || {}).reason || null; } catch (_) {}
-            hooks.end(gotLine, reason);
+            let info = {};
+            try { info = JSON.parse(data || "{}") || {}; } catch (_) {}
+            hooks.end(gotLine, info.reason || null, info);
           }
         }
       }
@@ -10372,8 +10373,7 @@ var qrcode = function() {
     }
   }
 
-  // `live` says the stream shows a run that just started (the Run button).
-  async function startStream(name, clear, live) {
+  async function startStream(name, clear) {
     stopStream();
     if (clear) clearTerm();
     const job = state.byName[name];
@@ -10384,13 +10384,18 @@ var qrcode = function() {
     const ctrl = new AbortController();
     state.stream = ctrl;
     state.streamFin = job && job.last_run ? job.last_run.finished_at : null;
-    state.streamLive = !!live || !!(job && job.running);
+    state.streamShown = null;
     try {
       await readSSE("/jobs/" + encodeURIComponent(name) + "/logs", ctrl, {
         line: (stream, text) => appendLine(stream, text, null),
         // "no-output": the job has no running instance and no recorded run
-        end: (sawLine, reason) => {
-          if (!sawLine) appendLine("", reason === "no-output" ? "(no run recorded yet)" : "(no output captured for the latest run)", "sys");
+        end: (sawLine, reason, info) => {
+          if (state.stream === ctrl) state.streamShown = info.started_at || null;
+          if (sawLine) return;
+          const lr = (state.byName[name] || {}).last_run;
+          appendLine("", reason === "no-output" ? "(no run recorded yet)"
+            : lr && lr.outcome === "skipped" ? "(no output: a pause skipped the latest slot)"
+            : "(no output captured for the latest run)", "sys");
         },
         err: (msg) => { if (msg) appendLine("", msg, "sys"); },
       });
@@ -10403,24 +10408,21 @@ var qrcode = function() {
   // multi-tail reconnects via its governor), so the drawer pane re-attaches
   // here, poll-paced, when no stream is live and the job is running or has
   // finished a run the pane hasn't shown, such as one that started and
-  // ended between two polls. A run the pane streamed live is already on
-  // screen, so its end replays nothing. clear=true because attaching
-  // replays the run's whole retained buffer: clearing first repaints
-  // without duplicating a replay that already rendered.
+  // ended between two polls. The stream's end event names the run it
+  // showed, and the end of that run replays nothing. A slot that a pause
+  // skipped has no output and leaves the pane as it is. clear=true
+  // because attaching replays the run's whole retained buffer: clearing
+  // first repaints without duplicating a replay that already rendered.
   function maybeReattachDrawerStream() {
-    if (!state.drawerJob || state.tab !== "logs") return;
+    if (!state.drawerJob || state.tab !== "logs" || state.stream) return;
     const job = state.byName[state.drawerJob];
     if (!job || !capturesLogs(job)) return;
-    if (state.stream) {
-      if (job.running) state.streamLive = true;
-      return;
-    }
-    const fin = job.last_run ? job.last_run.finished_at : null;
+    const lr = job.last_run;
+    const fin = lr ? lr.finished_at : null;
     if (!job.running) {
       if (fin === state.streamFin) return;
-      if (state.streamLive) {
+      if (lr && (lr.outcome === "skipped" || (lr.started_at && lr.started_at === state.streamShown))) {
         state.streamFin = fin;
-        state.streamLive = false;
         return;
       }
     }

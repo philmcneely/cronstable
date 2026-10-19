@@ -234,7 +234,9 @@ deferred `@reboot`, or a manual API start) first claims a TTL **slot lease**
 named `slots/<job name>` in the state store (the cron `state` store, not the
 leadership store). The claim is a single choke point in `maybe_launch_job`,
 and each store operation in it is bounded (10 seconds), so an unresponsive
-mount cannot stall the scheduler pass.
+mount cannot stall the scheduler pass. A manual start's claim waits for the
+store at most 10 seconds in all, so the API answers before a dashboard's
+request times out.
 
 - The lease TTL is `state.slotTtlSeconds` (default `30`; a value below 5
   raises `state.slotTtlSeconds must be >= 5`). While the job runs here, the
