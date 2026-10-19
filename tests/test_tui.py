@@ -4317,11 +4317,11 @@ def test_render_timeline_blast_and_empty(tmp_path):
 def test_drawer_logs_suffix_and_empty(tmp_path):
     app = _bare_app(tmp_path)
     paint = _paint(app)
-    # a no-output end: the job has not run
+    # a no-output end: the daemon holds no run of the job
     tail = _stub_tail(app, [])
     tail.ended = "no-output"
     app.log_tail = tail
-    assert "this job has not run yet" in _txt(app._drawer_logs(paint, 90, 12))
+    assert "no run recorded yet" in _txt(app._drawer_logs(paint, 90, 12))
     # a still-open empty tail shows the waiting hint
     tail2 = _stub_tail(app, [])
     app.log_tail = tail2

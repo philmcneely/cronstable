@@ -17,26 +17,27 @@
   after a node loses its link to a peer that other nodes still reach, both
   ends of the link can run that peer's `PreferLeader` jobs.
 - On a page opened at a loopback address, the web dashboard's Pair a device
-  panel draws no code, since a phone can't dial that address. It names the
-  server's other listen addresses and points to
-  `cronstable pair --public-url`, as the terminal clients do.
+  panel draws no code, since a phone can't dial that address. It names any
+  listener bound to a specific address that a phone can dial, and points to
+  `cronstable pair --public-url`.
 - An open History tab adds each new run in place. Both dashboards give
   `paused` as the reason for a slot that a pause skipped, and a workflow's
   recovery card follows its runs until they finish.
-- The Logs tab of both dashboards says when a job has not run yet. When
-  failures don't correlate, the verdict bar reads
-  `no two share an exit code and reason`. A pool's waiting reason reads
-  `Needs 1 slot` for a one-slot entry, and the job filter's placeholder fits
-  beside a full toolbar.
+- When the daemon has recorded nothing for a job, the Logs tab of both
+  dashboards says so. The web dashboard's open Logs tab also shows a run that
+  starts and finishes between two refreshes. When failures don't correlate,
+  the verdict bar reads `no two share an exit code and reason`. A pool's
+  waiting reason reads `Needs 1 slot` for a one-slot entry, and the job
+  filter's placeholder fits beside a full toolbar.
 - An overlap that `concurrencyPolicy: Allow` permits logs at INFO, and an
   overlap under `Forbid` or `Replace` logs a warning.
 - cronstable verifies certificates in OpenSSL's strict X.509 mode on every
   Python version, as Python 3.13 and later do by default. On Python 3.10 to
-  3.12 this refuses a CA without a key usage that includes `keyCertSign`, and
-  a certificate without an Authority Key Identifier, which those versions
-  otherwise accept. It applies to `web.tls.clientCa`, `cluster.tls`, the job
-  CLI's `CRONSTABLE_STATE_CACERT`, and the CLI clients' `--cacert`. Listener
-  TLS lists the requirements.
+  3.12 with OpenSSL 3.0 or later, this refuses a CA certificate without a key
+  usage extension and a certificate without an Authority Key Identifier,
+  which those versions otherwise accept. It applies to `web.tls.clientCa`,
+  `cluster.tls`, the job CLI's `CRONSTABLE_STATE_CACERT`, and the CLI
+  clients' `--cacert`. Listener TLS lists the requirements.
 - A listener logs a warning with the reason when a TLS handshake fails, such
   as a client certificate without an Authority Key Identifier. Each listener
   logs at most one such line a minute.

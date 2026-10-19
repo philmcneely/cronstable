@@ -8572,9 +8572,7 @@ class AppDrawers(AppOverlays):
             suffix.append(paint.style("  ⚠ %s" % tail.error, "fail"))
         elif tail.ended == "no-output":
             # the job has no running instance and no recorded run
-            suffix.append(
-                paint.style("  ── this job has not run yet ──", "dim")
-            )
+            suffix.append(paint.style("  ── no run recorded yet ──", "dim"))
         if wrap:
             rows.extend(
                 self._wrapped_window(

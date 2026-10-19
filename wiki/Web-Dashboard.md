@@ -167,6 +167,11 @@ want to watch here. If neither is enabled, the pane says so rather than staying
 empty. The view is bounded to the most recent lines, so a job with heavy output
 can't grow the tab without limit.
 
+While the tab is open, each poll that reports a new run switches the pane to
+that run's output, including a run that started and finished between two
+polls. When the daemon has recorded nothing for the job, the pane shows
+`(no run recorded yet)`.
+
 ### History: outcomes and durations over time
 
 [![The history tab: a stats grid (runs, success rate, ok/fail, avg/min/max duration), a per-run duration bar chart, and a detailed run table](https://raw.githubusercontent.com/ptweezy/cronstable/main/docs/img/dashboard-history.png)](https://raw.githubusercontent.com/ptweezy/cronstable/main/docs/img/dashboard-history.png)
@@ -756,10 +761,14 @@ instead.
 
 A phone can't dial a loopback address. When the page itself is open at one,
 such as `http://127.0.0.1:8080` or `http://localhost:8080`, the panel draws no
-code. It says that the address is loopback, names any other address of the
-same scheme that the server listens on (from `GET /whoami`), and points to
-`cronstable pair --public-url`, as the terminal clients do. Open the dashboard
-at an address the phone can reach to pair from the page.
+code. It says that the address is loopback and names each listener from
+[`GET /whoami`](HTTP-API#get-whoami) that has the page's scheme and is bound
+to a specific address another host can dial. It doesn't name a wildcard
+address such as `0.0.0.0`, a loopback address, or a link-local address. When
+it has no listener to name, as with `web.listen: http://0.0.0.0:8080`, it
+points to the server's LAN, VPN, or public address. It also points to
+`cronstable pair --public-url`. Open the dashboard at an address the phone can
+reach to pair from the page.
 
 For the pairing flow this feeds, see
 [push notifications](Push-Notifications). For the same code without the
@@ -875,7 +884,7 @@ The dashboard is a thin client over the [HTTP control API](HTTP-API):
 - the **node resources** card refetches `GET /node/history` while it is open;
 - opening a job's **History** tab fetches `GET /jobs/{name}/runs` (full retained history plus aggregate stats), and it fetches again while open whenever a `GET /jobs` poll shows a new run for the job; the [activity heatmap](#activity-heatmap) fills from one batched [`GET /activity?jobs=80`](HTTP-API#get-activity) fetch and keeps the capped per-job loop as a fallback against an older daemon;
 - opening a job's **Resources** tab fetches `GET /jobs/{name}/resources` lazily, never on the poll loop, and refetches it at the live view's selectable pace while the tab stays open;
-- opening the **Logs** tab opens the `GET /jobs/{name}/logs` SSE stream;
+- opening the **Logs** tab opens the `GET /jobs/{name}/logs` SSE stream, and the tab opens it again whenever a `GET /jobs` poll shows a run it hasn't shown;
 - the [live logs panel](#live-logs) opens up to four of those SSE streams at once (one per tailed job) and re-attaches them as runs come and go;
 - the [DAG drawer](#dag-orchestration) fetches `GET /dags/{name}/runs`, the selected run's document and XCom list, and a running task's log SSE stream, and it refetches `GET /dags/{name}/runs` every 3 seconds while a [recovery](Workflow-Recovery) it started has runs that have not finished; its buttons call `POST /dags/{name}/trigger`, `POST /dags/{name}/backfill`, `POST /dags/{name}/recover`, `POST /dags/{name}/runs/{run_key}/recover`, and the approval decision endpoint;
 - the **Run** / **Stop** buttons call `POST /jobs/{name}/start` and `POST /jobs/{name}/cancel`;

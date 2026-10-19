@@ -2404,16 +2404,20 @@ def test_distrust_window_outlasts_a_peer_round(
 
 
 async def test_poll_round_counts_an_unreachable_peer(no_tls):
-    # start() runs one poll round inline; each later round adds one more.
+    # start() runs one poll round inline, and the poll loop starts the next
+    # one at once (the interval wait comes after it). Each round that
+    # completes counts once against the peer.
     mgr = _mgr(
         ["127.0.0.1:%d" % _free_port()],
         listen="127.0.0.1:%d" % _free_port(),
     )
     await mgr.start()
     try:
-        await mgr._poll_all()
         (peer,) = mgr.view.peers.values()
         assert peer.status == STATUS_UNREACHABLE
+        assert peer.failed_rounds == 1
+        # a refused loopback connect takes about 2 s on Windows
+        await _wait_until(lambda: mgr._poll_rounds >= 2, 200, 0.05)
         assert peer.failed_rounds == 2
     finally:
         await mgr.stop()

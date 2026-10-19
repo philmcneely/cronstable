@@ -707,8 +707,23 @@ def _client_without_aki(tmp_path):
     return {name: str(path) for name, path in paths.items()}
 
 
+@pytest.mark.parametrize(
+    "send_cert, reason",
+    [
+        pytest.param(False, "the client sent no certificate", id="no-cert"),
+        pytest.param(
+            True,
+            "client certificate rejected: Missing Authority Key Identifier",
+            id="no-aki",
+            marks=pytest.mark.skipif(
+                ssl.OPENSSL_VERSION_INFO < (3,),
+                reason="OpenSSL 1.1.1 does not check the AKI",
+            ),
+        ),
+    ],
+)
 async def test_a_failed_handshake_is_logged_once_a_minute(
-    tmp_path, caplog, monkeypatch
+    tmp_path, caplog, monkeypatch, send_cert, reason
 ):
     tls = _write_tls(tmp_path)
     client = _client_without_aki(tmp_path)
@@ -725,7 +740,8 @@ async def test_a_failed_handshake_is_logged_once_a_minute(
 
     async def attempt():
         ctx = _client_ctx(tls["ca"])
-        ctx.load_cert_chain(client["cert"], client["key"])
+        if send_cert:
+            ctx.load_cert_chain(client["cert"], client["key"])
         async with aiohttp.ClientSession() as session:
             with pytest.raises((aiohttp.ClientError, ssl.SSLError, OSError)):
                 async with session.get(
@@ -745,10 +761,7 @@ async def test_a_failed_handshake_is_logged_once_a_minute(
         )
         await attempt()
         await _wait_until(lambda: refusals())
-        assert refusals() == [
-            "web: TLS handshake failed: client certificate rejected: "
-            "Missing Authority Key Identifier"
-        ]
+        assert refusals() == ["web: TLS handshake failed: " + reason]
         # later failures inside the minute are counted, not logged
         await attempt()
         await asyncio.sleep(0.2)
@@ -758,9 +771,8 @@ async def test_a_failed_handshake_is_logged_once_a_minute(
         await _wait_until(lambda: len(refusals()) >= 2)
         # a client can retry the handshake, so the count is at least one
         assert re.fullmatch(
-            r"web: TLS handshake failed: client certificate rejected: "
-            r"Missing Authority Key Identifier "
-            r"\([1-9]\d* more since the last report\)",
+            re.escape("web: TLS handshake failed: " + reason)
+            + r" \([1-9]\d* more since the last report\)",
             refusals()[1],
         )
     finally:

@@ -218,14 +218,22 @@ cronstable verifies certificates in OpenSSL's strict X.509 mode on every
 Python version, the mode that Python 3.13 and later use by default. That
 covers client certificates on an mTLS listener, the job CLI's check of the
 `state.jobApi` certificate, the `--cacert` checks of the terminal dashboard
-and the other CLI clients, and the cluster's peer certificates. Strict mode
-requires the following:
+and the other CLI clients, and the cluster's peer certificates. With OpenSSL
+3.0 or later, strict mode requires the following:
 
 - A CA certificate is marked as a CA (`basicConstraints=critical,CA:TRUE`),
   has a key usage that includes `keyCertSign`, and carries a Subject Key
   Identifier.
 - A certificate that a CA issued carries an Authority Key Identifier that
   names the CA's key.
+
+A Python linked to OpenSSL 1.1.1, such as the python.org builds of Python
+3.10 for Windows and macOS, makes fewer of these checks. It accepts a
+certificate without an Authority Key Identifier, and a CA certificate
+without a key usage extension, a Subject Key Identifier, or a critical
+`basicConstraints`. To see which OpenSSL a Python links, run
+`python -c "import ssl; print(ssl.OPENSSL_VERSION)"` with the Python that
+runs cronstable.
 
 As in Python 3.13, a chain may also end at an intermediate CA that the trust
 file holds.
