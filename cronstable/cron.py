@@ -5143,21 +5143,17 @@ class Cron:
         # run with the cluster, or _process_pending_reboots would run the
         # one-shot a second time (possibly on another node). Recording
         # BEFORE spawning mirrors the deferred-launch path's at-most-once
-        # ordering.
-        if name in self._pending_reboot_jobs:
+        # ordering. The pop precedes the await, so a scheduler pass or a
+        # second manual start during the push finds no entry.
+        if self._pending_reboot_jobs.pop(name, None) is not None:
+            logger.info(
+                "cluster: manual start of deferred @reboot job %s counts "
+                "as its boot run; retiring the pending entry",
+                name,
+            )
             mgr = self.cluster_manager
             if mgr is not None:
                 await mgr.mark_reboot_ran(name)
-            # pop, not del: a concurrent manual start can retire the entry
-            # while the await above yields, and the loser of that race must
-            # not 500 on a KeyError; mark_reboot_ran is idempotent and both
-            # requests still launch below.
-            if self._pending_reboot_jobs.pop(name, None) is not None:
-                logger.info(
-                    "cluster: manual start of deferred @reboot job %s counts "
-                    "as its boot run; retiring the pending entry",
-                    name,
-                )
         # Same for a boot run a pause deferred: the manual start IS it, so
         # record the boot marker (the deferral left it unwritten) or the
         # pause lifting would run the one-shot a second time.
@@ -11150,12 +11146,14 @@ class Cron:
     async def _process_pending_reboots(self) -> None:
         """Run each deferred @reboot job once the cluster has elected an owner.
 
-        A pending job retires only two ways: this node runs it as the
-        elected owner, or reboot_ran gossip positively confirms it ran
-        elsewhere. Never dropped because another node merely LOOKS like
-        the owner (never-lose). A name transiently absent from cron_jobs
-        stays pending; the launch is gated on presence and on still being
-        a deferrable @reboot, and always runs the CURRENT cron_jobs[name].
+        A pending job retires when this node runs it as the elected owner,
+        when reboot_ran gossip positively confirms it ran elsewhere, when a
+        manual start runs it, or when the job is disabled or its name is
+        reused for a job that is not a deferrable @reboot. Never dropped
+        because another node merely LOOKS like the owner (never-lose). A
+        name transiently absent from cron_jobs stays pending; the launch is
+        gated on presence and on still being a deferrable @reboot, and
+        always runs the CURRENT cron_jobs[name].
         A PAUSED job keeps its entry untouched on every branch: a pause
         defers the boot run, so neither the mark_reboot_ran token nor the
         entry is spent on a run the pause gate would skip.
@@ -11170,6 +11168,9 @@ class Cron:
             await self._process_pending_reboots_no_manager()
             return
         for name in list(self._pending_reboot_jobs):
+            if name not in self._pending_reboot_jobs:
+                # a manual start retired it during an earlier await
+                continue
             if name not in self.cron_jobs:
                 # transiently absent mid-reload: keep pending (never-lose);
                 # the launch below is gated on presence, so a genuinely
@@ -11179,7 +11180,7 @@ class Cron:
             if not self._is_deferrable_reboot(job) or not job.enabled:
                 # reused for a non-deferrable job, or disabled: retire the
                 # stale entry without running it.
-                del self._pending_reboot_jobs[name]
+                self._pending_reboot_jobs.pop(name, None)
                 continue
             try:
                 already_ran = mgr.reboot_ran(name)
@@ -11195,12 +11196,12 @@ class Cron:
                 continue
             if already_ran:
                 # positive confirmation -> retire without re-running.
-                del self._pending_reboot_jobs[name]
-                logger.info(
-                    "cluster: deferred @reboot job %s already ran in the "
-                    "cluster; standing down here",
-                    name,
-                )
+                if self._pending_reboot_jobs.pop(name, None) is not None:
+                    logger.info(
+                        "cluster: deferred @reboot job %s already ran in the "
+                        "cluster; standing down here",
+                        name,
+                    )
                 continue
             if self._pause_active(name) is not None:
                 # a pause DEFERS the boot run: keep pending; do not burn
@@ -11212,7 +11213,8 @@ class Cron:
             # so comparing names could make the holder fail to recognize
             # itself and never run the one-shot on any node.
             if self._cluster_allows(job):
-                del self._pending_reboot_jobs[name]
+                if self._pending_reboot_jobs.pop(name, None) is None:
+                    continue
                 if self._survivor_holds_boot_run(name):
                     # the surviving run IS the boot run: record it as ran
                     # so the cluster stands down, and skip the relaunch.
@@ -11241,6 +11243,8 @@ class Cron:
         without running.
         """
         for name in list(self._pending_reboot_jobs):
+            if name not in self._pending_reboot_jobs:
+                continue
             job = self.cron_jobs.get(name)
             if job is None:
                 continue  # transiently absent -> keep pending, re-check
@@ -11248,7 +11252,8 @@ class Cron:
                 # a pause DEFERS the boot run: keep it pending rather
                 # than retiring it unrun, and re-check next wakeup.
                 continue
-            del self._pending_reboot_jobs[name]
+            if self._pending_reboot_jobs.pop(name, None) is None:
+                continue
             # a disabled job retires without running, mirroring
             # job_should_run; enabled is checked last so a name reused
             # for a non-@reboot job short-circuits on the schedule
@@ -11273,17 +11278,20 @@ class Cron:
         mgr-is-None case.
         """
         for name in list(self._pending_reboot_jobs):
+            if name not in self._pending_reboot_jobs:
+                continue
             if name not in self.cron_jobs:
                 continue  # transiently absent -> keep pending (never-lose)
             job = self.cron_jobs[name]
             if not self._is_deferrable_reboot(job) or not job.enabled:
                 # reused or disabled -> retire without running.
-                del self._pending_reboot_jobs[name]
+                self._pending_reboot_jobs.pop(name, None)
                 continue
             if self._pause_active(name) is not None:
                 continue  # deferred by the pause; still owed
             if job.clusterPolicy == "PreferLeader":
-                del self._pending_reboot_jobs[name]
+                if self._pending_reboot_jobs.pop(name, None) is None:
+                    continue
                 if self._survivor_holds_boot_run(name):
                     continue
                 logger.info(
@@ -13560,10 +13568,10 @@ class Cron:
             return
         redact = job.redactArchivedSecrets
         if redact:
-            # Executor-offloaded: a pathological line must degrade THIS
-            # archive write, not stall dispatch/web/heartbeats. Patterns
-            # are linear (see cronstable.redact); this is defense in
-            # depth.
+            # Executor-offloaded, but sre keeps the GIL while it scans, so
+            # a scan stalls the event loop. Each pattern is linear and
+            # scans at most cronstable.redact.LINE_SCAN_LIMIT characters;
+            # only the PEM marker search reads a longer line.
             texts = await asyncio.get_running_loop().run_in_executor(
                 None, redact_lines, [line for _stream, line in raw]
             )
