@@ -19,6 +19,11 @@
   server offers STARTTLS, and the config load warns about such a login to
   any host but `localhost` or a loopback address. A mail block with `to` and
   `from` that sets both, directly or through `defaults:`, is a config error.
+- When the system hostname contains a dot, a mail report's `EHLO` greeting
+  gives that name as is and skips the DNS lookup, so a host that can't
+  resolve its own name still sends its reports within the 60-second limit.
+  For a hostname without a dot, the greeting carries the name that Python's
+  `socket.getfqdn()` finds.
 - Secret redaction finds JWTs in time proportional to a line's length, so the
   daemon keeps scheduling and serving requests while it archives an output
   line made of many hyphen-joined `eyJ` runs. With `redactArchivedSecrets`

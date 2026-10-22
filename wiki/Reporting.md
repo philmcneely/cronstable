@@ -182,6 +182,14 @@ Notes on behavior:
 - The reporter always closes the SMTP connection, even if connecting (including
   `STARTTLS`), login, or sending raises, so a misbehaving server cannot leak one
   connection per report.
+- **Each report gets 60 seconds** for the whole SMTP conversation: connecting
+  (including `STARTTLS`), login, and sending. When a report runs longer, the
+  reporter logs an error and gives up on it.
+- When the system hostname contains a dot, such as `build-01.example.com`, the
+  `EHLO` greeting gives that name as is and skips the DNS lookup. For a
+  hostname without a dot, `aiosmtplib` looks up the full name with Python's
+  `socket.getfqdn()`, and that lookup counts toward the 60 seconds. If the host
+  can't resolve its own name, give it a hostname that includes its domain.
 - `html: true` uses `set_content(body, subtype="html")`, which sets the correct
   charset and transfer-encoding for non-ASCII HTML.
 

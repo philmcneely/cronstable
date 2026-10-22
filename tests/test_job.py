@@ -4,6 +4,7 @@ import gc
 import logging
 import os
 import signal
+import socket
 import sys
 import tempfile
 import threading
@@ -680,7 +681,9 @@ jobs:
         (False, "out", None, "Cron job 'test' failed", "out\n"),
     ],
 )
-async def test_report_mail(success, stdout, stderr, subject, body):
+async def test_report_mail(
+    smtp_client_name, success, stdout, stderr, subject, body
+):
     conf = cronstable.config.parse_config_string(A_JOB, "")
     job_config = conf.jobs[0]
     print(job_config.onSuccess["report"])
@@ -740,6 +743,7 @@ async def test_report_mail(success, stdout, stderr, subject, body):
             "use_tls": False,
             "start_tls": True,
             "validate_certs": True,
+            "local_hostname": smtp_client_name,
         },
     )
     assert len(connect_calls) == 1
@@ -4679,14 +4683,16 @@ async def test_mail_report_times_out(monkeypatch, caplog):
 class _FakeEsmtpServer:
     """A loopback ESMTP server that accepts any message.
 
-    ``commands`` records each command verb; ``messages`` records each
-    message's data and whether it arrived over TLS.  STARTTLS is offered
-    only when ``material`` (``_write_tls`` output) is given.
+    ``commands`` records each command verb; ``ehlo_names`` records the name
+    each EHLO gives; ``messages`` records each message's data and whether it
+    arrived over TLS.  STARTTLS is offered only when ``material``
+    (``_write_tls`` output) is given.
     """
 
     def __init__(self, material=None):
         self.ssl_context = material and server_ssl_context(material)
         self.commands = []
+        self.ehlo_names = []
         self.messages = []
         self.upgrades = []
         self.port = None
@@ -4745,8 +4751,11 @@ class _FakeEsmtp(asyncio.Protocol):
             else:
                 self.data.append(line)
             return
-        verb = line.split(b" ", 1)[0].upper().decode()
+        word, _, argument = line.partition(b" ")
+        verb = word.upper().decode()
         self.server.commands.append(verb)
+        if verb == "EHLO":
+            self.server.ehlo_names.append(argument.decode())
         if verb == "EHLO" and self.server.ssl_context and not self.tls:
             self._reply(b"250-fake\r\n250 STARTTLS")
         elif verb == "STARTTLS":
@@ -4773,9 +4782,51 @@ class _FakeEsmtp(asyncio.Protocol):
         self._drain()
 
 
+@pytest.fixture
+def smtp_client_name(monkeypatch):
+    """Pin the dotted host name mail reports give in EHLO.
+
+    A report then skips the lookup of the runner's own name, which takes 35
+    seconds or more on GitHub's macOS runners.
+    """
+    monkeypatch.setattr(cronstable.job, "gethostname", lambda: "client.test")
+    return "client.test"
+
+
+@pytest.mark.parametrize(
+    ("system_name", "ehlo_name", "lookups"),
+    [
+        # A dotted hostname goes out as is, without a lookup.
+        ("client.example.test", "client.example.test", []),
+        # aiosmtplib looks up a hostname without a dot, which can qualify it.
+        ("client", "client.example.test", [""]),
+    ],
+)
+async def test_mail_report_ehlo_names_the_host(
+    monkeypatch, system_name, ehlo_name, lookups
+):
+    looked_up = []
+
+    def getfqdn(name=""):
+        looked_up.append(name)
+        return "client.example.test"
+
+    monkeypatch.setattr(cronstable.job, "gethostname", lambda: system_name)
+    monkeypatch.setattr(socket, "getfqdn", getfqdn)
+    job_config, report = _mail_report_config()
+    job = _mail_job_mock(job_config)
+    async with _FakeEsmtpServer() as server:
+        report["mail"].update(smtpHost="127.0.0.1", smtpPort=server.port)
+        await cronstable.job.MailReporter().report(False, job, report)
+
+    assert server.ehlo_names == [ehlo_name]
+    assert looked_up == lookups
+    assert len(server.messages) == 1
+
+
 @pytest.mark.parametrize("starttls", [False, True])
 async def test_mail_report_starttls_follows_the_config_key(
-    tmp_path, starttls
+    tmp_path, smtp_client_name, starttls
 ):
     # The real connect() runs against a server that offers STARTTLS, so
     # aiosmtplib's own connect-time upgrade is under test too.
@@ -4796,7 +4847,9 @@ async def test_mail_report_starttls_follows_the_config_key(
     assert b"To: to@example.com" in server.messages[0][0]
 
 
-async def test_mail_report_starttls_fails_without_server_support():
+async def test_mail_report_starttls_fails_without_server_support(
+    smtp_client_name,
+):
     job_config, report = _mail_report_config()
     job = _mail_job_mock(job_config)
     async with _FakeEsmtpServer() as server:

@@ -1008,6 +1008,7 @@ class MailReporter(Reporter):
             use_tls=mail["tls"],
             start_tls=bool(mail["starttls"]),
             validate_certs=mail["validate_certs"],
+            local_hostname=_smtp_local_hostname(),
         )
         # One overall bound on the whole conversation; see
         # MAIL_REPORT_TIMEOUT.
@@ -1043,6 +1044,19 @@ class MailReporter(Reporter):
             await smtp.send_message(message)
         finally:
             smtp.close()
+
+
+def _smtp_local_hostname() -> str | None:
+    """The name a mail report gives in EHLO; None leaves it to aiosmtplib.
+
+    A system hostname with a dot goes out as is. aiosmtplib's default,
+    socket.getfqdn(), looks the host's own name up on every connection,
+    inside MAIL_REPORT_TIMEOUT. On a host whose name does not resolve, such
+    as GitHub's macOS runners, each lookup can take 35 seconds or more. A
+    hostname without a dot keeps that lookup, since it can qualify the name.
+    """
+    name = gethostname()
+    return name if "." in name else None
 
 
 def _limits_env(job: Any) -> dict[str, str]:
