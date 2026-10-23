@@ -2414,7 +2414,7 @@ jobs:
       # Shallow checkout; see the dist job.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build binary (OpenBSD 7.9 amd64)
-        uses: vmactions/openbsd-vm@5f7b2c933b8846a138361d6843c52af4bef5d945 # v1.4.8
+        uses: vmactions/openbsd-vm@f1ca8bc8ecc5b6ef7218e5b914836e067e1546d3 # v1.4.9
         env:
           SETUPTOOLS_SCM_PRETEND_VERSION: ${{ needs.version.outputs.new }}
         with:
@@ -4143,7 +4143,7 @@ jobs:
       - name: Verify prepared artifact checksums
         run: python3 .github/scripts/verify_release_checksums.py
       - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           # Runs before the tag and Release, so a retry after a later failure
           # finds the files on PyPI; skip-existing lets it finish the release.
