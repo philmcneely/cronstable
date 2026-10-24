@@ -3635,10 +3635,14 @@ class Cron:
     def _node_name(self) -> str:
         """The cluster node name when clustered, else the plain hostname the
         durable-state layer already uses as this node's identity."""
+        return self._cluster_node_name() or self._state_host
+
+    def _cluster_node_name(self) -> str | None:
+        """The running cluster manager's ``nodeName``, or None without one."""
         mgr = self.cluster_manager
         if mgr is not None and getattr(mgr, "node_name", None):
             return mgr.node_name
-        return self._state_host
+        return None
 
     def _node_history_block(self) -> dict[str, Any]:
         """The retained CPU/memory ring as its wire shape.
@@ -4330,6 +4334,10 @@ class Cron:
             relay_timeout=push_config["relay"]["timeout"],
             store=store,
             host=report_hostname(),
+            # a callable for the same reason: a reload rebuilds the
+            # cluster manager and keeps this service, and the flap ids
+            # follow the node name of whichever manager is running.
+            node=self._cluster_node_name,
         )
         await service.start()
         self._push_service = service

@@ -1,5 +1,35 @@
 # History
 
+## 1.2.72
+
+- The push reporter gives each alert a `flapId` beside its `collapseId`, so
+  a relay can suppress a job that fails on every run. A `collapseId` names
+  one run. A `flapId` names the source that keeps alerting: a job's
+  failures or its successes on one node, one SLA check of a job on one
+  node, or one DAG or node event. A cluster node goes by its `nodeName` and
+  a standalone daemon by its hostname, so nodes built from one image keep
+  separate ids as long as their `nodeName`s differ. Test alerts and
+  `approval_waiting` events carry no `flapId`, because each of them has to
+  arrive. The id is a keyed hash under the same per-installation salt as
+  the `collapseId`, so the relay learns that two alerts share a source but
+  not what the source is. A relay that predates the field ignores it.
+- Through the hosted relay, a job that fails on every run pages six times
+  within 30 minutes, then sends one reminder every 30 minutes until it has
+  been quiet for 2 hours. The relay deduplicates one alert that several
+  nodes report by its `collapseId`.
+- `docs/relay-protocol.md` specifies flap identity and how the hosted relay
+  handles a flood. An envelope over a device's rate limit gets a 2xx
+  `digested` answer and folds into a burst digest, sent at most every 5
+  minutes. Daemon events draw from a rate bucket of their own, so job
+  alerts can't hold back an approval gate. The hosted relay answers 429
+  only from its edge limiter (6000 POSTs a minute from one IPv4 address or
+  IPv6 /64, shared by every daemon behind that address) and when APNs
+  throttles the device. It retries a transient APNs failure once and
+  spends at most 8 seconds on a send, inside the default 10-second
+  `push.relay.timeout`. The document also covers the app's subscription
+  proof: its 16-day grace, refunds and revocations, and where and how often
+  the app sends it.
+
 ## 1.2.71
 
 - A manual start of a deferred `@reboot` job that arrives while the
