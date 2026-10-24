@@ -1,5 +1,42 @@
 # History
 
+## 1.2.71
+
+- A manual start of a deferred `@reboot` job that arrives while the
+  scheduler is launching another deferred `@reboot` job leaves the daemon
+  running. The manual start counts as that job's boot run, and the scheduler
+  doesn't run the job again.
+- The FreeBSD package's `rc.d` script starts the service. In `/etc/rc.conf`,
+  `cronstable_runas` sets its account (whose primary group owns the state
+  directory) and `cronstable_args` adds `cronstable` arguments; `start` warns
+  while `cronstable_user` or `cronstable_flags` is set. An upgrade restarts a
+  running service once its running jobs finish. An upgrade from 1.2.70 or
+  earlier stops it, and the package reminds you to start an enabled, stopped
+  service.
+- A mail report with `starttls: true` upgrades the connection with STARTTLS
+  and fails when the server doesn't offer it. With `tls` and `starttls` both
+  `false` (the default), mail and its login go unencrypted even when the
+  server offers STARTTLS, and the config load warns about such a login to
+  any host but `localhost` or a loopback address. A mail block with `to` and
+  `from` that sets both, directly or through `defaults:`, is a config error.
+- When the system hostname contains a dot, a mail report's `EHLO` greeting
+  gives that name as is and skips the DNS lookup, so a host that can't
+  resolve its own name still sends its reports within the 60-second limit.
+  For a hostname without a dot, the greeting carries the name that Python's
+  `socket.getfqdn()` finds.
+- Secret redaction finds JWTs in time proportional to a line's length, so the
+  daemon keeps scheduling and serving requests while it archives an output
+  line made of many hyphen-joined `eyJ` runs. With `redactArchivedSecrets`
+  on (the default), an archived line longer than 1,048,576 characters (1 MiB
+  of ASCII text) is stored as `***REDACTED***`.
+- An included file changes only the defaults that its own `defaults:` block
+  or the files it includes set, and the other defaults of earlier includes
+  stay in effect. A jobs-only YAML file or a classic crontab changes none.
+- A daemon running from a release binary reads its modules from that binary
+  after a package upgrade replaces or deletes it, so it keeps sending reports
+  until it restarts on the new binary, including while it finishes its
+  running jobs.
+
 ## 1.2.70
 
 - cronstable requires `aiohttp` 3.14.4, `sentry-sdk` 2.8.0, `tzdata` 2024.1,
@@ -53,6 +90,10 @@
   the reason.
 - The `end` event of `GET /jobs/{name}/logs` carries the `started_at` of the
   run that the stream showed.
+- The release performance check fails a timing benchmark measured in three
+  or more rounds only when the median of its rounds also exceeds the
+  benchmark's limits, so one round that runs unusually fast on the previous
+  release can't block a release.
 
 ## 1.2.69
 
