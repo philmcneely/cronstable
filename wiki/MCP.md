@@ -108,18 +108,27 @@ matching jobs, and it builds full job rows for the returned page. On a large
 job set, a small `limit` or a `filter` keeps the result small.
 
 `cron_tail_job_logs` and `cron_tail_dag_task_logs` return a run's latest
-output lines, up to `tail`, and a `cursor`. Pass the cursor back to get only
-the lines written since that call. The cursor counts the run's lines, so
-polling keeps working after the run's 1000-line buffer fills. Each result also
-has these fields:
+output lines, up to `tail`, and a `cursor`. Pass the cursor back to get the
+lines written after it, up to `tail` at a time; when a page is full, call
+again for the rest. The cursor counts the run's lines, so polling keeps
+working after the run's 1000-line buffer fills. `cron_tail_job_logs` reads
+the job's newest running instance, or its last finished run when none is
+running. Each result also has these fields:
 
 - `skipped`: the number of lines after the cursor that the buffer dropped
   before this call.
-- `reset`: `true` when the cursor is past the end of this run's output, which
-  means it came from another run. The page then starts at the oldest line the
-  buffer holds.
+- `reset`: `true` when the cursor is past the end of this run's output. The
+  cursor came from another run, or the run's lines are gone: a workflow task
+  that ended, or a run from before a daemon restart. The page then starts at
+  the oldest line the buffer holds.
 - `started_at`: when the job run, or the running workflow task instance,
-  started. A new value means a new run, so start over without a cursor.
+  started. A value that differs from the previous call's means the lines come
+  from another run, newer or older, so start over without a cursor. For
+  example, an older run that is still going takes over after a newer
+  overlapping run ends.
+- `running`: for a job, whether any instance is running; for a workflow task,
+  whether the instance is still running. A workflow task's lines are gone
+  after it ends.
 
 Mutating tools require an explicit `confirm: true` argument and re-check the
 same authorization as the REST API. The tools that launch configured commands

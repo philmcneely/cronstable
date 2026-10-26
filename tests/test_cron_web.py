@@ -3003,6 +3003,56 @@ def test_webloop_job_logs_tail_payload_names_the_run():
     assert cron.job_logs_tail_payload("beta", tail=10)["started_at"] is None
 
 
+def test_webloop_job_logs_tail_payload_falls_back_to_an_older_overlap():
+    from types import SimpleNamespace
+
+    cron = _cron(TWO_JOBS)
+    older = SimpleNamespace(
+        output=JobOutputStream(), started_at=DT(2000, 1, 1, tzinfo=UTC)
+    )
+    newer = SimpleNamespace(
+        output=JobOutputStream(), started_at=DT(2000, 1, 2, tzinfo=UTC)
+    )
+    cron.running_jobs["alpha"] = [older, newer]
+    payload = cron.job_logs_tail_payload("alpha", tail=10)
+    assert payload["started_at"] == newer.started_at.isoformat()
+    # the newer run ends first: the page switches back to the older run,
+    # which the poller sees as a different started_at.
+    cron.running_jobs["alpha"] = [older]
+    payload = cron.job_logs_tail_payload("alpha", tail=10)
+    assert payload["started_at"] == older.started_at.isoformat()
+
+
+def test_webloop_dag_task_logs_tail_payload_tracks_the_instance():
+    from types import SimpleNamespace
+
+    cron = _cron(_DAG_LOGS_YAML)
+    started = DT(1999, 12, 31, 12, 0, 0, tzinfo=UTC)
+    out = JobOutputStream()
+    _published(out, 0, 3)
+    cron.running_jobs["lin.a"] = [
+        SimpleNamespace(
+            output=out,
+            started_at=started,
+            dag_ref=SimpleNamespace(run_key="rk", taskkey="a"),
+        )
+    ]
+    payload = cron.dag_task_logs_tail_payload("lin", "rk", "a", tail=10)
+    assert _tail_lines(payload) == ["line0", "line1", "line2"]
+    assert payload["running"] is True
+    assert payload["started_at"] == started.isoformat()
+    # the instance ends and its lines go with it: the old cursor is past
+    # everything, and running tells a finished task from another run.
+    del cron.running_jobs["lin.a"]
+    ended = cron.dag_task_logs_tail_payload(
+        "lin", "rk", "a", tail=10, cursor=payload["cursor"]
+    )
+    assert ended["lines"] == []
+    assert ended["reset"] is True
+    assert ended["running"] is False
+    assert ended["started_at"] is None
+
+
 async def test_webloop_pump_output_handles_disconnect():
     from types import SimpleNamespace
 

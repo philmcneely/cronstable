@@ -56,11 +56,19 @@ from cronstable.cron import (
     _BACKFILL_UNAVAILABLE,
     _RECOVERY_UNAVAILABLE,
     PAUSE_BY_MAX,
+    PAUSE_DEFAULT_SECONDS,
+    PAUSE_MAX_SECONDS,
+    PAUSE_NOTE_MAX,
+    PLAN_TOKEN_LENGTH,
+    RECOVERY_TASKS_MAX,
     WEB_ANON_REQUEST_KEY,
     WEB_TOKEN_REQUEST_KEY,
     ApiActionError,
     _load_index_bytes,
 )
+from cronstable.croninfo import PRESSURE_MAX_HOURS
+from cronstable.dagrun import DAG_MAX_CATCHUP
+from cronstable.job import LIVE_LOG_LIMIT
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, no import cost / no cycle
     from cronstable.cron import Cron
@@ -836,7 +844,7 @@ class MCPHandler:
                 "cron_get_job",
                 "Get one job",
                 "Show details for one job (schedule, command, last run, live "
-                "resources, retry/slot state). Use it once you know the "
+                "resources, retry/slot state). Use it when you know the "
                 "job's name; use cron_list_runs for its run history, or "
                 "cron_tail_job_logs for its output.",
                 obj({"name": _JOB_ARG}, ["name"]),
@@ -962,9 +970,10 @@ class MCPHandler:
                 "Version",
                 "Show the server version, job-set ID, and job count. Use it "
                 "to identify the daemon, or to compare job-set IDs across "
-                "replicas, which match only when they run the same "
-                "effective set of jobs; use cron_get_cluster for the "
-                "replicas' roles.",
+                "replicas, which match when the replicas' jobs agree on the "
+                "configuration fields the ID covers, even if secret values "
+                "or host-specific settings differ; use cron_get_cluster for "
+                "the replicas' roles.",
                 obj({}),
                 self._t_get_version,
             ),
@@ -972,10 +981,11 @@ class MCPHandler:
                 "observe",
                 "cron_tail_job_logs",
                 "Tail job logs",
-                "Last retained stdout/stderr lines of a job, with a `cursor` "
-                "to poll for newly appended lines (the poll form of the live "
-                "log stream). Use it to read what a job printed; use "
-                "cron_list_runs for exit status and timing.",
+                "Last retained stdout/stderr lines of a job's newest running "
+                "instance, or of its last finished run when none is running, "
+                "with a `cursor` to poll for newly appended lines (the poll "
+                "form of the live log stream). Use it to read what a job "
+                "printed; use cron_list_runs for exit status and timing.",
                 obj(
                     {
                         "name": _JOB_ARG,
@@ -991,19 +1001,21 @@ class MCPHandler:
                 "cron_schedule_pressure",
                 "Schedule load",
                 "Upcoming runs for enabled schedules over the next `hours` "
-                "(default 24, max 168), grouped by hour and minute in `tz` "
+                "(default {}, max {}), grouped by hour and minute in `tz` "
                 "(default UTC). Shows when jobs are scheduled together "
                 "and which minute positions have no scheduled runs. Use it "
                 "to see how busy each minute is; use cron_suggest_slot to "
-                "pick a time for a new job.",
+                "pick a time for a new job.".format(
+                    _PRESSURE_HOURS_DEFAULT, PRESSURE_MAX_HOURS
+                ),
                 obj(
                     {
                         "hours": _arg(
                             _INT,
                             "Hours ahead to scan.",
                             minimum=1,
-                            maximum=168,
-                            default=24,
+                            maximum=PRESSURE_MAX_HOURS,
+                            default=_PRESSURE_HOURS_DEFAULT,
                         ),
                         "tz": _arg(
                             _STR,
@@ -1096,8 +1108,8 @@ class MCPHandler:
                             _INT,
                             "Upcoming runs to list.",
                             minimum=1,
-                            maximum=60,
-                            default=5,
+                            maximum=_EXPLAIN_COUNT_MAX,
+                            default=_EXPLAIN_COUNT_DEFAULT,
                         ),
                         "tz": _arg(
                             _STR,
@@ -1186,7 +1198,7 @@ class MCPHandler:
                 "Workflow run details: task status, timing, and decisions. "
                 "Use it to see which task failed or waits at an approval "
                 "gate; use cron_get_dag_xcom for the values tasks passed, "
-                "or cron_tail_dag_task_logs for a task's output.",
+                "or cron_tail_dag_task_logs for a running task's output.",
                 obj(
                     {"dag": _DAG_ARG, "run_key": _RUN_KEY_ARG},
                     ["dag", "run_key"],
@@ -1211,9 +1223,10 @@ class MCPHandler:
                 "cron_tail_dag_task_logs",
                 "Read workflow task logs",
                 "Latest saved log lines for a running workflow task "
-                "instance, with a `cursor` to poll for more. Use it to "
-                "follow a task's output; use cron_tail_job_logs for a job "
-                "outside a workflow.",
+                "instance, with a `cursor` to poll for more. After the "
+                "instance ends, running is false and no lines remain. Use "
+                "it to follow a task's output; use cron_tail_job_logs for a "
+                "job outside a workflow.",
                 obj(
                     {
                         "dag": _DAG_ARG,
@@ -1233,8 +1246,8 @@ class MCPHandler:
                 "Preview failed tasks or a selected task and its downstream "
                 "tasks. Supply run_key, or from and to for failed dates. It "
                 "changes nothing; run it before cron_recover_dag (available "
-                "when readOnly is off), which needs the plan_token it "
-                "returns.",
+                "when readOnly is off), which takes the top-level planToken "
+                "of this result as plan_token.",
                 obj(dict(_RECOVERY_ARGS), ["dag"]),
                 self._t_preview_recovery,
             ),
@@ -1339,13 +1352,13 @@ class MCPHandler:
                             _INT,
                             "How long to pause, in seconds.",
                             minimum=1,
-                            maximum=2592000,
-                            default=3600,
+                            maximum=PAUSE_MAX_SECONDS,
+                            default=PAUSE_DEFAULT_SECONDS,
                         ),
                         "note": _arg(
                             _STR,
                             "Reason to record with the pause.",
-                            maxLength=500,
+                            maxLength=PAUSE_NOTE_MAX,
                         ),
                         "confirm": _CONFIRM_ARG,
                     },
@@ -1387,11 +1400,14 @@ class MCPHandler:
                 "cron_backfill_dag",
                 "Run workflow for past dates",
                 "Run a scheduled workflow for each of its scheduled times "
-                "in a date range. By default it's a dry run that creates "
-                "nothing; to create the runs, set dry_run=false and "
-                "confirm=true. Runs that already exist are not duplicated. "
-                "Use it for scheduled times the workflow missed; use "
-                "cron_recover_dag to rerun failed tasks in existing runs.",
+                "in a date range, earliest first, up to {} times per call. "
+                "Times that already have a run count toward that limit and "
+                "get no second run, so split a longer range into several "
+                "calls. By default it's a dry run that creates nothing; to "
+                "create the runs, set dry_run=false and confirm=true. Use "
+                "it for scheduled times the workflow missed; use "
+                "cron_recover_dag to rerun failed tasks in existing "
+                "runs.".format(DAG_MAX_CATCHUP),
                 obj(
                     {
                         "dag": _DAG_ARG,
@@ -1430,16 +1446,19 @@ class MCPHandler:
                 "Execute a reviewed recovery plan. Requires plan_token and "
                 "confirm=true. Creates a new run preserving successful work. "
                 "Run cron_preview_recovery first with the same arguments to "
-                "review the plan and get plan_token.",
+                "review the plan; its result's top-level planToken is the "
+                "plan_token.",
                 obj(
                     {
                         **_RECOVERY_ARGS,
                         "plan_token": _arg(
                             _STR,
-                            "The plan_token that cron_preview_recovery "
-                            "returned for the same arguments.",
-                            minLength=64,
-                            maxLength=64,
+                            "The top-level planToken of the "
+                            "cron_preview_recovery result for the same "
+                            "arguments. The tokens nested in a date range's "
+                            "plans are rejected as stale.",
+                            minLength=PLAN_TOKEN_LENGTH,
+                            maxLength=PLAN_TOKEN_LENGTH,
                         ),
                         "allow_config_change": _arg(
                             _BOOL,
@@ -1480,7 +1499,7 @@ class MCPHandler:
                             _STR,
                             "Name to record with the decision, after the "
                             "token's label.",
-                            maxLength=100,
+                            maxLength=PAUSE_BY_MAX,
                         ),
                         "confirm": _CONFIRM_ARG,
                     },
@@ -1635,10 +1654,10 @@ class MCPHandler:
         self, args: dict[str, Any]
     ) -> dict[str, Any]:
         # no clamp here: croninfo.schedule_pressure clamps hours to
-        # [1, 168] authoritatively and echoes the clamped value back in
-        # the payload; only the default is applied at this layer.
+        # [1, PRESSURE_MAX_HOURS] authoritatively and echoes the clamped
+        # value back in the payload; only the default is applied here.
         hours = _opt_int(args.get("hours"))
-        hours = 24 if hours is None else hours
+        hours = _PRESSURE_HOURS_DEFAULT if hours is None else hours
         tz = args.get("tz")
         if tz is not None and not isinstance(tz, str):
             raise _ToolInputError("`tz` must be an IANA timezone string")
@@ -1746,7 +1765,11 @@ class MCPHandler:
         expr = _req_str(args, "expression")
         tz, seed = self._preview_args(args)
         count = _opt_int(args.get("count"))
-        count = 5 if count is None else max(1, min(count, 60))
+        count = (
+            _EXPLAIN_COUNT_DEFAULT
+            if count is None
+            else max(1, min(count, _EXPLAIN_COUNT_MAX))
+        )
         try:
             payload = self._cron.schedule_preview_payload(
                 expr, tz, count=count, seed=seed
@@ -1979,10 +2002,10 @@ class MCPHandler:
         token = None
         if execute:
             token = _req_str(args, "plan_token")
-            if len(token) != 64:
+            if len(token) != PLAN_TOKEN_LENGTH:
                 raise _ToolInputError(
-                    "plan_token must be the 64-character token "
-                    "cron_preview_recovery returned"
+                    "plan_token must be the {}-character token "
+                    "cron_preview_recovery returned".format(PLAN_TOKEN_LENGTH)
                 )
         mode = args.get("mode", "failed")
         if not isinstance(mode, str):
@@ -1993,7 +2016,7 @@ class MCPHandler:
         tasks = args.get("tasks", [])
         if (
             not isinstance(tasks, list)
-            or len(tasks) > 2000
+            or len(tasks) > RECOVERY_TASKS_MAX
             or any(not isinstance(t, str) for t in tasks)
         ):
             raise _ToolInputError(
@@ -2419,10 +2442,10 @@ class MCPHandler:
             return (
                 "Diagnose the failed workflow run '{1}' of dag '{0}'. Use "
                 "cron_get_dag_run(dag='{0}', run_key='{1}') to find the "
-                "failed task(s), cron_tail_dag_task_logs(...) for their "
-                "output, and cron_get_dag_xcom(dag='{0}', run_key='{1}') for "
-                "the data they passed. Explain which task failed, why, and "
-                "what downstream tasks were blocked."
+                "failed task(s) with their exit codes and failure reasons, "
+                "and cron_get_dag_xcom(dag='{0}', run_key='{1}') for the "
+                "data they passed. Explain which task failed, why, and what "
+                "downstream tasks were blocked."
             ).format(a["dag"], a["run_key"])
 
         def blast(a: dict[str, str], present: frozenset) -> str:
@@ -2519,11 +2542,7 @@ class MCPHandler:
                     arg("dag", "the workflow name"),
                     arg("run_key", "the failed run key"),
                 ],
-                "requires": (
-                    "cron_get_dag_run",
-                    "cron_tail_dag_task_logs",
-                    "cron_get_dag_xcom",
-                ),
+                "requires": ("cron_get_dag_run", "cron_get_dag_xcom"),
                 "optional": (),
                 "complete": {
                     "dag": self._complete_dags,
@@ -2710,6 +2729,12 @@ def _rows_arg(what: str, cap: int) -> dict[str, Any]:
     )
 
 
+# cron_explain_schedule's run count and cron_schedule_pressure's window:
+# the handlers apply them and the input schemas advertise them.
+_EXPLAIN_COUNT_DEFAULT = 5
+_EXPLAIN_COUNT_MAX = 60
+_PRESSURE_HOURS_DEFAULT = 24
+
 # Input properties that several tools share.
 _ISO_UTC = (
     "Use ISO 8601, such as 2026-10-01T00:00+00:00 (write UTC as +00:00, "
@@ -2733,16 +2758,19 @@ _EXPRESSION_ARG = _arg(_STR, "Cron expression, such as 0 3 * * 1-5.")
 _SEED_ARG = _arg(
     _STR,
     "Name of the job that will use the expression, which resolves "
-    "Jenkins-style H fields to that job's slot. Required when the "
-    "expression uses H.",
+    "Jenkins-style H fields to that job's slot. For a workflow's "
+    "schedule, use dag:<name>. Required when the expression uses H.",
 )
 _CURSOR_ARG = _arg(
     _INT,
-    "The previous call's cursor, to get the lines after it. It counts the "
-    "run's lines, so it keeps working after the 1000-line buffer fills. "
-    "In the result, skipped counts lines the buffer dropped before this "
-    "poll, and reset means the cursor came from another run; a new "
-    "started_at also means a new run. Omit it for the latest lines.",
+    "Omit it for the latest lines. To poll, pass the previous result's "
+    "cursor to get up to tail lines after it, and call again while pages "
+    "come back full. In the result, skipped counts lines after the cursor "
+    "that the {}-line buffer dropped. reset means the cursor is past this "
+    "run's output: it came from another run, or the run's lines are gone "
+    "(an ended workflow task, or a run from before a daemon restart). If "
+    "started_at changed, the lines come from another run, so call again "
+    "without a cursor.".format(LIVE_LOG_LIMIT),
     minimum=0,
 )
 _CONFIRM_ARG = _arg(
@@ -2782,7 +2810,7 @@ _RECOVERY_ARGS = {
         {"type": "array", "items": _STR},
         "Task instance keys to rerun, with everything downstream of "
         "them, for mode from.",
-        maxItems=2000,
+        maxItems=RECOVERY_TASKS_MAX,
     ),
 }
 

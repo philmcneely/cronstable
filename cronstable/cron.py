@@ -95,6 +95,7 @@ from cronstable.config import (
 )
 from cronstable.cronexpr import CronTab
 from cronstable.croninfo import (
+    PRESSURE_MAX_HOURS,
     ScheduleEntry,
     describe_cron,
     duplicate_schedules,
@@ -353,6 +354,10 @@ PAUSE_DEFAULT_SECONDS = 3600
 PAUSE_MAX_SECONDS = 2592000
 PAUSE_NOTE_MAX = 500
 PAUSE_BY_MAX = 100
+# Recovery request caps: tasks listed per request, and the plan token's
+# length (a SHA-256 hex digest).
+RECOVERY_TASKS_MAX = 2000
+PLAN_TOKEN_LENGTH = 64
 # Durable pause stream, newest wins; expiry is reader-enforced (see
 # _pause_active) and every node sharing the store honors a pause.
 PAUSE_STREAM_PREFIX = "paused/"
@@ -4829,7 +4834,9 @@ class Cron:
         self, request: web.Request
     ) -> web.Response:
         headers = self._web_headers()
-        hours = self._web_int_query(request, "hours", default=24, lo=1, hi=168)
+        hours = self._web_int_query(
+            request, "hours", default=24, lo=1, hi=PRESSURE_MAX_HOURS
+        )
         tz = request.query.get("tz") or None
         # Validate up front and answer 400 from the requested name, so the
         # builder's exception text never reaches the response body.
@@ -6861,13 +6868,16 @@ class Cron:
         if (
             not isinstance(mode, str)
             or not isinstance(tasks, list)
-            or len(tasks) > 2000
+            or len(tasks) > RECOVERY_TASKS_MAX
             or any(not isinstance(t, str) for t in tasks)
             or not isinstance(dry_run, bool)
             or not isinstance(allow_change, bool)
             or (
                 not dry_run
-                and (not isinstance(token, str) or len(token) != 64)
+                and (
+                    not isinstance(token, str)
+                    or len(token) != PLAN_TOKEN_LENGTH
+                )
             )
         ):
             raise _api_error(web.HTTPBadRequest, "invalid recovery request")
@@ -6905,7 +6915,10 @@ class Cron:
             or not isinstance(allow_change, bool)
             or (
                 not dry_run
-                and (not isinstance(token, str) or len(token) != 64)
+                and (
+                    not isinstance(token, str)
+                    or len(token) != PLAN_TOKEN_LENGTH
+                )
             )
         ):
             raise _api_error(
@@ -7688,8 +7701,10 @@ class Cron:
         stream's ``published`` count), not a slot in the bounded ring, so it
         keeps advancing after the ring fills.  ``skipped`` counts the lines
         after the cursor that the ring dropped before this poll.  A cursor
-        past everything the stream has published came from another run:
-        ``reset`` is set and the page starts at the oldest retained line.
+        past everything the stream has published came from another run, or
+        from a run whose stream is gone (an ended DAG task, or a run
+        rehydrated after a restart): ``reset`` is set and the page starts at
+        the oldest retained line.
         """
         # `lines` aliases the live ring: safe only on the event loop, where
         # the len and the islice run with nothing rotating between them
@@ -7738,7 +7753,8 @@ class Cron:
 
         Behind MCP ``cron_tail_job_logs``, the poll/cursor projection of the
         SSE stream at ``GET /jobs/{name}/logs``.  ``started_at`` names the
-        run the lines belong to, so a poller can see a new run begin.
+        run the lines belong to, so a poller can see the page switch to
+        another run, newer or older.
         """
         if name not in self.cron_jobs:
             return None
@@ -7762,8 +7778,9 @@ class Cron:
 
         Behind MCP ``cron_tail_dag_task_logs``.  Only a currently-running
         instance has a reachable buffer (a finished task's output is not
-        retained under the template name), so ``lines`` is empty once it ends.
-        ``started_at`` is when that running instance started.
+        retained under the template name), so ``lines`` is empty and
+        ``running`` false after it ends.  ``started_at`` is when that running
+        instance started.
         """
         if dag not in self.cron_dags:
             return None
@@ -7773,6 +7790,7 @@ class Cron:
         payload["dag"] = dag
         payload["run_key"] = run_key
         payload["taskkey"] = taskkey
+        payload["running"] = running is not None
         payload["started_at"] = self._started_iso(running)
         return payload
 
