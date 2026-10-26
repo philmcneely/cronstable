@@ -1,5 +1,13 @@
 # History
 
+## 1.2.73
+
+- The MCP log-tail tools, `cron_tail_job_logs` and `cron_tail_dag_task_logs`,
+  keep returning new lines after a run's 1000-line output buffer fills: the
+  cursor counts the run's lines instead of buffer slots. Each result reports
+  `skipped` lines that the buffer dropped between polls, sets `reset` when a
+  cursor came from another run, and names the run in `started_at`.
+
 ## 1.2.72
 
 - The push reporter gives each alert a `flapId` beside its `collapseId`, so

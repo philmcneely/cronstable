@@ -2738,10 +2738,11 @@ _SEED_ARG = _arg(
 )
 _CURSOR_ARG = _arg(
     _INT,
-    "The previous call's cursor, to get the lines after it. It is a "
-    "position in a buffer that keeps the run's last 1000 lines, so once "
-    "the buffer is full, or a new run starts, it can skip lines or "
-    "return none. Omit it for the latest lines.",
+    "The previous call's cursor, to get the lines after it. It counts the "
+    "run's lines, so it keeps working after the 1000-line buffer fills. "
+    "In the result, skipped counts lines the buffer dropped before this "
+    "poll, and reset means the cursor came from another run; a new "
+    "started_at also means a new run. Omit it for the latest lines.",
     minimum=0,
 )
 _CONFIRM_ARG = _arg(

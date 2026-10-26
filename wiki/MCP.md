@@ -107,6 +107,20 @@ running). The tool applies both before it pages, so `total` counts the
 matching jobs, and it builds full job rows for the returned page. On a large
 job set, a small `limit` or a `filter` keeps the result small.
 
+`cron_tail_job_logs` and `cron_tail_dag_task_logs` return a run's latest
+output lines, up to `tail`, and a `cursor`. Pass the cursor back to get only
+the lines written since that call. The cursor counts the run's lines, so
+polling keeps working after the run's 1000-line buffer fills. Each result also
+has these fields:
+
+- `skipped`: the number of lines after the cursor that the buffer dropped
+  before this call.
+- `reset`: `true` when the cursor is past the end of this run's output, which
+  means it came from another run. The page then starts at the oldest line the
+  buffer holds.
+- `started_at`: when the job run, or the running workflow task instance,
+  started. A new value means a new run, so start over without a cursor.
+
 Mutating tools require an explicit `confirm: true` argument and re-check the
 same authorization as the REST API. The tools that launch configured commands
 (`cron_run_job`, `cron_trigger_dag`, `cron_backfill_dag`, and

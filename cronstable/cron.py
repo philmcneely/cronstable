@@ -7519,22 +7519,18 @@ class Cron:
             return running[-1]
         return self.last_run.get(name)
 
-    def _job_output(self, name: str) -> JobOutputStream | None:
-        run = self._job_tail_run(name)
-        return run.output if run is not None else None
-
-    def _dag_task_output(
+    def _dag_task_run(
         self, dag_name: str, run_key: str, taskkey: str
-    ) -> JobOutputStream | None:
-        """The live output stream of a DAG task instance, or ``None``.
+    ) -> "RunningJob | None":
+        """The running instance of a DAG task, or ``None``.
 
         A DAG task runs as a :class:`RunningJob` under the template name
         ``<dag>.<task_id>`` (its instances share that key), so locate the one
         whose ``dag_ref`` matches this run + instance key.  Only a *currently
-        running* instance has a reachable buffer: a finished DAG task's
-        output is not retained under the template name (its completion routes
-        to the DAG driver, not the per-job last_run), so this returns ``None``
-        once the task is done.
+        running* instance is reachable: a finished DAG task's output is not
+        retained under the template name (its completion routes to the DAG
+        driver, not the per-job last_run), so this returns ``None`` once the
+        task is done.
         """
         # the base task id: a mapped instance key is ``id#<index>``.
         task_id = taskkey.split("#", 1)[0]
@@ -7546,8 +7542,15 @@ class Cron:
                 and dref.run_key == run_key
                 and dref.taskkey == taskkey
             ):
-                return running.output
+                return running
         return None
+
+    def _dag_task_output(
+        self, dag_name: str, run_key: str, taskkey: str
+    ) -> JobOutputStream | None:
+        """The live output stream of a DAG task instance, or ``None``."""
+        running = self._dag_task_run(dag_name, run_key, taskkey)
+        return running.output if running is not None else None
 
     def _web_protocol(self) -> asyncio.BaseProtocol:
         """The current runner's protocol for a held listener's connection."""
@@ -7679,33 +7682,54 @@ class Cron:
         The non-streaming counterpart of :meth:`_pump_output`, backing the MCP
         log-tail tools (a client polls with the returned ``cursor`` to fetch
         only newly appended lines).  Without a ``cursor`` returns the last
-        ``tail`` lines; with one, the lines after that offset (capped at
-        ``tail``).  ``cursor`` is a line offset into the bounded in-memory
-        buffer, so after the buffer rotates it can only ever skip forward,
-        never resurrect dropped lines.
+        ``tail`` lines; with one, the lines after it (capped at ``tail``).
+
+        ``cursor`` is an absolute line number in the run's output (the
+        stream's ``published`` count), not a slot in the bounded ring, so it
+        keeps advancing after the ring fills.  ``skipped`` counts the lines
+        after the cursor that the ring dropped before this poll.  A cursor
+        past everything the stream has published came from another run:
+        ``reset`` is set and the page starts at the oldest retained line.
         """
         # `lines` aliases the live ring: safe only on the event loop, where
         # the len and the islice run with nothing rotating between them
         lines = output.lines if output is not None else ()
-        total = len(lines)
+        end = output.published if output is not None else 0
+        # the absolute number of the oldest retained line
+        first = end - len(lines)
+        skipped = 0
+        reset = False
         if cursor is None:
-            start = max(0, total - tail)
+            start = max(first, end - tail)
+        elif cursor > end:
+            start, reset = first, True
         else:
-            start = min(max(cursor, 0), total)
-        stop = min(start + max(tail, 0), total)
+            cursor = max(cursor, 0)
+            start = max(cursor, first)
+            skipped = start - cursor
+        stop = min(start + max(tail, 0), end)
         # older retained lines exist above what we returned (only
         # meaningful on a cursor-less "give me the tail" call).
-        truncated = cursor is None and start > 0
-        if stop <= start:
-            return {"lines": [], "cursor": start, "truncated": truncated}
+        truncated = cursor is None and start > first
+        page = (
+            itertools.islice(lines, start - first, stop - first)
+            if stop > start
+            else ()
+        )
         return {
             "lines": [
-                {"stream": stream, "line": line}
-                for stream, line in itertools.islice(lines, start, stop)
+                {"stream": stream, "line": line} for stream, line in page
             ],
-            "cursor": stop,
+            "cursor": max(start, stop),
             "truncated": truncated,
+            "skipped": skipped,
+            "reset": reset,
         }
+
+    @staticmethod
+    def _started_iso(run: Any) -> str | None:
+        started = getattr(run, "started_at", None)
+        return started.isoformat() if started is not None else None
 
     def job_logs_tail_payload(
         self, name: str, tail: int = 100, cursor: int | None = None
@@ -7713,13 +7737,17 @@ class Cron:
         """Last retained log lines of a job, or ``None`` if unknown.
 
         Behind MCP ``cron_tail_job_logs``, the poll/cursor projection of the
-        SSE stream at ``GET /jobs/{name}/logs``.
+        SSE stream at ``GET /jobs/{name}/logs``.  ``started_at`` names the
+        run the lines belong to, so a poller can see a new run begin.
         """
         if name not in self.cron_jobs:
             return None
-        payload = self._tail_payload(self._job_output(name), tail, cursor)
+        run = self._job_tail_run(name)
+        output = run.output if run is not None else None
+        payload = self._tail_payload(output, tail, cursor)
         payload["name"] = name
         payload["running"] = bool(self.running_jobs.get(name))
+        payload["started_at"] = self._started_iso(run)
         return payload
 
     def dag_task_logs_tail_payload(
@@ -7735,14 +7763,17 @@ class Cron:
         Behind MCP ``cron_tail_dag_task_logs``.  Only a currently-running
         instance has a reachable buffer (a finished task's output is not
         retained under the template name), so ``lines`` is empty once it ends.
+        ``started_at`` is when that running instance started.
         """
         if dag not in self.cron_dags:
             return None
-        output = self._dag_task_output(dag, run_key, taskkey)
+        running = self._dag_task_run(dag, run_key, taskkey)
+        output = running.output if running is not None else None
         payload = self._tail_payload(output, tail, cursor)
         payload["dag"] = dag
         payload["run_key"] = run_key
         payload["taskkey"] = taskkey
+        payload["started_at"] = self._started_iso(running)
         return payload
 
     async def _web_job_logs(self, request: web.Request) -> web.StreamResponse:
