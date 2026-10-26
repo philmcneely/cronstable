@@ -1262,13 +1262,12 @@ class MCPHandler:
                 "state",
                 "cron_inspect_state",
                 "Inspect state store",
-                "Inspect saved state without revealing values: overview "
-                "(default), one namespace's documents (`ns`) or a stream's "
-                "newest records (`stream`). KV values and secrets are "
-                "redacted. Use it to check the progress cursors that jobs "
-                "advance, idempotency claims, stored keys, or stream "
-                "records such as catchup/<job>; use cron_list_runs for a "
-                "job's run history.",
+                "Inspect saved state: overview (default), one namespace's "
+                "documents (`ns`), or a stream's newest records in full "
+                "(`stream`). KV values come back as a size and type. Use "
+                "it to check the progress cursors that jobs advance, "
+                "idempotency claims, stored keys, or stream records such as "
+                "catchup/<job>; use cron_list_runs for a job's run history.",
                 obj(
                     {
                         "ns": _arg(
