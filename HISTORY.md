@@ -1,5 +1,27 @@
 # History
 
+## 1.2.73
+
+- `docs/openapi.yaml` describes the fields inside the responses of the job,
+  run, resource, DAG, run document, XCom, approval decision, recovery,
+  cluster, fleet, and state inspector routes, so a generated client reads
+  them as typed fields: a job's retry, SLA, cluster slot and owner, and live
+  CPU and memory; a run's skip reason and resource totals; a DAG's latest
+  run and each task's trigger rule; every key of a run document's task
+  entries; a cluster's peers, conflicts, and lease; and the state store's
+  inventory, documents, and records. Every object stays open to keys a
+  newer daemon adds, and a test fails when a payload emits a key that its
+  schema does not declare. `GET /state/records` returns each record's full
+  stored body and refuses only archived-output `logs/` streams. A `runs/`
+  record carries the same data that `GET /jobs/{name}/runs` and
+  `GET /jobs/{name}/resources` serve. The dashboard's state inspector says
+  what each tab shows: KV values as a type and size, and records in full.
+- An integer that a cluster peer sends outside the signed 64-bit range
+  counts as malformed: an `exit_code` in its job summaries reads as null, a
+  `cpu_count` in its node stats is dropped, and a `cluster_size` fails the
+  poll, so a generated client can decode every integer in `/cluster` and
+  `/fleet`.
+
 ## 1.2.72
 
 - The push reporter gives each alert a `flapId` beside its `collapseId`, so

@@ -1084,11 +1084,10 @@ class MCPHandler:
                 "state",
                 "cron_inspect_state",
                 "Inspect state store",
-                "Inspect saved state without revealing values: overview "
-                "(default), one namespace's documents (`ns` "
-                "kv/|cursor/|idem/) or a stream's newest records (`stream`). "
-                "KV values and "
-                "secrets are redacted.",
+                "Inspect saved state: overview (default), one namespace's "
+                "documents (`ns` kv/|cursor/|idem/), or a stream's newest "
+                "records in full (`stream`). KV values are redacted to a "
+                "size and type, and `logs/` streams are refused.",
                 obj({"ns": _STR, "stream": _STR, "limit": _INT}),
                 self._t_inspect_state,
             ),

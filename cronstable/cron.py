@@ -497,7 +497,7 @@ WEB_ROUTES: "tuple[tuple[str, str, str, str | None], ...]" = (
         "_web_dag_decision",
         None,
     ),
-    # durable state inspector (metadata-only)
+    # durable state inspector (KV values redacted, records in full)
     ("GET", "/state", "_web_state", None),
     ("GET", "/state/documents", "_web_state_documents", None),
     ("GET", "/state/records", "_web_state_records", None),
@@ -6652,7 +6652,7 @@ class Cron:
             )
         return _json_response(result, headers=self._web_headers())
 
-    # --- durable state inspector (metadata-only) --------------------------
+    # --- durable state inspector -------------------------------------------
 
     async def _web_state(self, request: web.Request) -> web.Response:
         return _json_response(
@@ -6722,7 +6722,7 @@ class Cron:
         """Documents of one KV/cursor/idempotency namespace, redacted.
 
         KV values are stripped to a ``valueSize``/``valueType`` summary
-        (metadata-only stance); cursor watermarks and idempotency claim
+        (a KV value is job data); cursor watermarks and idempotency claim
         metadata are returned verbatim (no user secret there).  Behind
         ``GET /state/documents`` and MCP ``cron_inspect_state``.  Raises
         :class:`ApiActionError` when there is no store or ``ns`` is not an
@@ -6775,10 +6775,12 @@ class Cron:
     async def state_records_payload(
         self, stream: str, limit: int = 100
     ) -> dict[str, Any]:
-        """Newest records of one stream, metadata-only.
+        """Newest records of one stream, each its full stored body.
 
+        A ``runs/`` record carries what ``GET /jobs/{name}/runs`` and
+        ``GET /jobs/{name}/resources`` already serve to the ``view`` scope.
         Archived-output (``logs/``) streams are refused: they carry raw job
-        output, which the metadata-only stance keeps off this surface.  Behind
+        output, which this surface never returns.  Behind
         ``GET /state/records`` and MCP ``cron_inspect_state``.  Raises
         :class:`ApiActionError` for a missing store, empty stream, or a log
         stream.
@@ -6789,8 +6791,7 @@ class Cron:
         if not stream:
             raise ApiActionError("a stream is required", status=400)
         if stream.startswith("logs/") or stream == "logs":
-            # archived job output: raw content, excluded from the metadata
-            # inspector on purpose.
+            # archived job output: raw content, excluded on purpose.
             raise ApiActionError(
                 "log streams carry raw output and are not inspectable",
                 status=403,

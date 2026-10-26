@@ -84,7 +84,7 @@ default) strips every mutating tool regardless of toolset.
 | --- | --- |
 | `observe` (read) | `cron_get_status`, `cron_list_jobs`, `cron_get_job`, `cron_list_runs`, `cron_get_job_trends`, `cron_get_job_resources`, `cron_get_cluster`, `cron_get_fleet`, `cron_get_node`, `cron_query_metrics`, `cron_get_version`, `cron_tail_job_logs`, `cron_schedule_pressure`, `cron_schedule_duplicates`, `cron_suggest_slot`, `cron_validate_schedule`, `cron_explain_schedule`, `cron_why_no_run`, `cron_list_pools` |
 | `dags` (read) | `cron_list_dags`, `cron_list_dag_runs`, `cron_get_dag_run`, `cron_get_dag_xcom`, `cron_tail_dag_task_logs`, `cron_preview_recovery` |
-| `state` (read) | `cron_inspect_state` (store overview / a namespace's documents / a stream's records; KV values and secrets redacted) |
+| `state` (read) | `cron_inspect_state` (store overview / a namespace's documents / a stream's records; KV values redacted, records in full) |
 | `act` (**mutating**) | `cron_run_job`, `cron_cancel_job`, `cron_pause_job`, `cron_resume_job`, `cron_cancel_queued` |
 | `dags` (**mutating**) | `cron_trigger_dag`, `cron_backfill_dag`, `cron_recover_dag`, `cron_decide_gate` |
 
@@ -372,9 +372,10 @@ The MCP surface matches cronstable's hardening and is safe by default:
   `cron_decide_gate` appends its optional `by` argument, up to 100
   characters, to the label as display text.
 
-- **Redaction.** `cron_inspect_state` mirrors the dashboard's metadata-only
-  stance: KV values become a size/type summary and secret **names** are shown
-  without values.
+- **Redaction.** `cron_inspect_state` returns what the
+  [state inspector endpoints](HTTP-API#state-inspector-endpoints) return: KV
+  values become a size/type summary, records come back as full bodies, and
+  archived-output `logs/` streams are refused.
 
 ## Trying it
 
