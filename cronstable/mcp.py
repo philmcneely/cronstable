@@ -60,13 +60,14 @@ from cronstable.cron import (
     PAUSE_MAX_SECONDS,
     PAUSE_NOTE_MAX,
     PLAN_TOKEN_LENGTH,
+    PREVIEW_COUNT_MAX,
     RECOVERY_TASKS_MAX,
     WEB_ANON_REQUEST_KEY,
     WEB_TOKEN_REQUEST_KEY,
     ApiActionError,
     _load_index_bytes,
 )
-from cronstable.croninfo import PRESSURE_MAX_HOURS
+from cronstable.croninfo import PRESSURE_DEFAULT_HOURS, PRESSURE_MAX_HOURS
 from cronstable.dagrun import DAG_MAX_CATCHUP
 from cronstable.job import LIVE_LOG_LIMIT
 
@@ -350,6 +351,9 @@ class MCPHandler:
         }
         self._tools = self._build_registry()
         self._tool_by_name = {t["name"]: t for t in self._tools}
+        # the config is fixed for this handler's lifetime (a reload builds
+        # a new one), so only the caller's scopes vary per tools/list
+        self._served_tools = [t for t in self._tools if self._configured(t)]
         self._resources, self._templates = self._build_resources()
         self._resource_by_uri = {r["uri"]: r for r in self._resources}
         self._template_by_uri = {t["uriTemplate"]: t for t in self._templates}
@@ -457,10 +461,12 @@ class MCPHandler:
         return {}
 
     async def _m_tools_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        # _permitted's check, with the caller read once for the whole list
+        caller = _caller.get()
         tools = [
             t["listing"]
-            for t in self._tools
-            if self._configured(t) and self._permitted(t)
+            for t in self._served_tools
+            if caller is None or t["scope"] in caller.scopes
         ]
         return {"tools": tools}
 
@@ -1006,7 +1012,7 @@ class MCPHandler:
                 "and which minute positions have no scheduled runs. Use it "
                 "to see how busy each minute is; use cron_suggest_slot to "
                 "pick a time for a new job.".format(
-                    _PRESSURE_HOURS_DEFAULT, PRESSURE_MAX_HOURS
+                    PRESSURE_DEFAULT_HOURS, PRESSURE_MAX_HOURS
                 ),
                 obj(
                     {
@@ -1015,7 +1021,7 @@ class MCPHandler:
                             "Hours ahead to scan.",
                             minimum=1,
                             maximum=PRESSURE_MAX_HOURS,
-                            default=_PRESSURE_HOURS_DEFAULT,
+                            default=PRESSURE_DEFAULT_HOURS,
                         ),
                         "tz": _arg(
                             _STR,
@@ -1108,7 +1114,7 @@ class MCPHandler:
                             _INT,
                             "Upcoming runs to list.",
                             minimum=1,
-                            maximum=_EXPLAIN_COUNT_MAX,
+                            maximum=PREVIEW_COUNT_MAX,
                             default=_EXPLAIN_COUNT_DEFAULT,
                         ),
                         "tz": _arg(
@@ -1657,7 +1663,7 @@ class MCPHandler:
         # [1, PRESSURE_MAX_HOURS] authoritatively and echoes the clamped
         # value back in the payload; only the default is applied here.
         hours = _opt_int(args.get("hours"))
-        hours = _PRESSURE_HOURS_DEFAULT if hours is None else hours
+        hours = PRESSURE_DEFAULT_HOURS if hours is None else hours
         tz = args.get("tz")
         if tz is not None and not isinstance(tz, str):
             raise _ToolInputError("`tz` must be an IANA timezone string")
@@ -1768,7 +1774,7 @@ class MCPHandler:
         count = (
             _EXPLAIN_COUNT_DEFAULT
             if count is None
-            else max(1, min(count, _EXPLAIN_COUNT_MAX))
+            else max(1, min(count, PREVIEW_COUNT_MAX))
         )
         try:
             payload = self._cron.schedule_preview_payload(
@@ -2729,11 +2735,9 @@ def _rows_arg(what: str, cap: int) -> dict[str, Any]:
     )
 
 
-# cron_explain_schedule's run count and cron_schedule_pressure's window:
-# the handlers apply them and the input schemas advertise them.
+# cron_explain_schedule's default run count: the handler applies it and
+# the input schema advertises it.
 _EXPLAIN_COUNT_DEFAULT = 5
-_EXPLAIN_COUNT_MAX = 60
-_PRESSURE_HOURS_DEFAULT = 24
 
 # Input properties that several tools share.
 _ISO_UTC = (

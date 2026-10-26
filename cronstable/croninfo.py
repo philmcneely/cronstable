@@ -1379,6 +1379,8 @@ class ScheduleEntry(NamedTuple):
 #: hundreds of jobs share one cell.
 _NAME_CAP = 10
 
+#: the window schedule_pressure scans by default, in hours (one day)
+PRESSURE_DEFAULT_HOURS = 24
 #: the longest window schedule_pressure scans, in hours (one week)
 PRESSURE_MAX_HOURS = 168
 
@@ -1600,7 +1602,7 @@ def _fill_cell_jobs(
 def schedule_pressure(
     entries: Sequence[ScheduleEntry],
     start: datetime.datetime | None = None,
-    hours: int = 24,
+    hours: int = PRESSURE_DEFAULT_HOURS,
     tz: datetime.tzinfo | None = None,
 ) -> dict[str, Any]:
     """The fleet's collision heatmap: every fire over the next 24 hours.

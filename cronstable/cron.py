@@ -95,6 +95,7 @@ from cronstable.config import (
 )
 from cronstable.cronexpr import CronTab
 from cronstable.croninfo import (
+    PRESSURE_DEFAULT_HOURS,
     PRESSURE_MAX_HOURS,
     ScheduleEntry,
     describe_cron,
@@ -358,6 +359,8 @@ PAUSE_BY_MAX = 100
 # length (a SHA-256 hex digest).
 RECOVERY_TASKS_MAX = 2000
 PLAN_TOKEN_LENGTH = 64
+# Most upcoming runs a schedule preview lists per request.
+PREVIEW_COUNT_MAX = 60
 # Durable pause stream, newest wins; expiry is reader-enforced (see
 # _pause_active) and every node sharing the store honors a pause.
 PAUSE_STREAM_PREFIX = "paused/"
@@ -4524,7 +4527,12 @@ class Cron:
                 {"error": tz_error}, status=400, headers=headers
             )
         count = self._web_int_query(
-            request, "limit", default=12, lo=1, hi=60, alias="count"
+            request,
+            "limit",
+            default=12,
+            lo=1,
+            hi=PREVIEW_COUNT_MAX,
+            alias="count",
         )
         payload = self.schedule_preview_payload(
             expr, tz, count, request.query.get("seed")
@@ -4720,7 +4728,7 @@ class Cron:
 
     def schedule_pressure_payload(
         self,
-        hours: int = 24,
+        hours: int = PRESSURE_DEFAULT_HOURS,
         tz_name: str | None = None,
         entries: list[ScheduleEntry] | None = None,
     ) -> dict[str, Any]:
@@ -4809,7 +4817,9 @@ class Cron:
         )
 
     async def schedule_pressure_payload_async(
-        self, hours: int = 24, tz_name: str | None = None
+        self,
+        hours: int = PRESSURE_DEFAULT_HOURS,
+        tz_name: str | None = None,
     ) -> dict[str, Any]:
         """Executor-offloaded :meth:`schedule_pressure_payload`."""
         return await self._schedule_payload_offload(
@@ -4835,7 +4845,11 @@ class Cron:
     ) -> web.Response:
         headers = self._web_headers()
         hours = self._web_int_query(
-            request, "hours", default=24, lo=1, hi=PRESSURE_MAX_HOURS
+            request,
+            "hours",
+            default=PRESSURE_DEFAULT_HOURS,
+            lo=1,
+            hi=PRESSURE_MAX_HOURS,
         )
         tz = request.query.get("tz") or None
         # Validate up front and answer 400 from the requested name, so the
