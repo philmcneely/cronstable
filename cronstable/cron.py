@@ -179,14 +179,13 @@ _BACKFILL_UNAVAILABLE = (
 class _AiohttpDoor:
     """Stand-in for ``aiohttp`` / ``aiohttp.web`` that imports on first touch.
 
-    aiohttp is 144 ms and 14 MB of RSS, roughly half the TIME of importing
+    aiohttp is 144 ms and 14 MB of RSS, roughly half the time of importing
     this module and a bit under a third of its memory, and every one of its
-    consumers here is optional: the web
-    listener, the cluster gossip client, the push relay. A daemon with none of
-    them configured used to pay for the web stack anyway, and so did every
-    offline caller that merely reaches into this module for a constant or a
-    helper (``cronstable state gc`` and friends go through state_admin, which
-    imports the stream prefixes from here).
+    consumers here is optional: the web listener, the cluster gossip client,
+    the push relay. A daemon with none of them configured avoids loading the
+    web stack, as does every offline caller that merely reaches into this
+    module for a constant or a helper (``cronstable state gc`` and friends go
+    through state_admin, which imports the stream prefixes from here).
 
     A module-level ``__getattr__`` (PEP 562) cannot do this job: it is
     consulted for attribute access on the module object from outside, not for
@@ -803,11 +802,10 @@ def _maps_action_errors(
 ) -> Callable[["Cron", web.Request], Awaitable[web.Response]]:
     """Translate an escaping :class:`ApiActionError` into its HTTP response.
 
-    The ONE spelling of the ``except ApiActionError`` tail the action and
-    state-inspection handlers used to each repeat.  The status mapping and
-    the headers-on-409 rule live in :meth:`Cron._action_http_error` (the
-    state-inspection payloads never raise 409, so that rule is inert for
-    them).
+    Shared ``except ApiActionError`` wrapper for the action and
+    state-inspection handlers.  The status mapping and the headers-on-409
+    rule live in :meth:`Cron._action_http_error` (the state-inspection
+    payloads never raise 409, so that rule is inert for them).
     """
 
     @wraps(handler)
@@ -887,13 +885,13 @@ async def _error_envelope_middleware(request, handler):
             content_type="application/json",
         )
     except Exception:  # noqa: BLE001 - the envelope's last arm
-        # An unhandled error used to escape to aiohttp's own handler,
-        # which answers text/plain (or text/html on an Accept), so the ONE
-        # status a client could not parse uniformly was the 500. Message
-        # is fixed: the reason goes to the log, never to the caller (the
-        # rule _push_store_unavailable and the MCP/jobapi surfaces follow).
-        # aiohttp's own log_exception is lost once this arm handles it, so
-        # log here or the traceback disappears.
+        # Without this arm, an unhandled error would escape to aiohttp's
+        # own handler, which answers text/plain (or text/html on an Accept),
+        # leaving 500 as the one status a client could not parse uniformly.
+        # Message is fixed: the reason goes to the log, never to the caller
+        # (the rule _push_store_unavailable and the MCP/jobapi surfaces
+        # follow). aiohttp's own log_exception is lost once this arm handles
+        # it, so log here or the traceback disappears.
         logger.exception(
             "web: internal error serving %s", request.rel_url.path
         )
@@ -2547,12 +2545,12 @@ class Cron:
         # boot in-flight reconciliation (which leaves such records open).
         # The boot gate and the deferred-launch paths consult it: a boot
         # run that is literally still running must remain this boot's
-        # only copy, whatever the boot marker says -- the marker can be
-        # missing (written by an older build, or the boot instant was
-        # unknowable) while the process is plainly there. The start time
-        # (None when unreadable) pins the pid's identity so a recycled
-        # pid never counts. Declared above the config load and pruned in
-        # _apply_reload with the other per-job maps.
+        # only copy, whatever the boot marker says (the marker can be
+        # missing when the boot instant was unknowable while the process
+        # is plainly there). The start time (None when unreadable) pins
+        # the pid's identity so a recycled pid never counts. Declared
+        # above the config load and pruned in _apply_reload with the
+        # other per-job maps.
         self._boot_survivors: dict[str, tuple[int, float | None]] = {}
         self.config_arg = config_arg
         if config_arg is not None:
@@ -2574,7 +2572,7 @@ class Cron:
         self._wait_for_running_jobs_task: asyncio.Task | None = None
         # Every wake source for the run loop's sleep feeds this one
         # event: a shutdown (_stop_event mirrors its own set into it) and
-        # a reload request (signal_reload -- SIGHUP, or the Windows
+        # a reload request (signal_reload: SIGHUP, or the Windows
         # service's PARAMCHANGE), which wakes the sleep so the reload
         # happens now rather than at the next housekeeping minute; the
         # reparse itself is forced by voiding _config_sig.
@@ -6046,8 +6044,8 @@ class Cron:
         return _json_response({"paused": None}, headers=self._web_headers())
 
     def _action_http_error(self, ex: "ApiActionError") -> web.HTTPException:
-        # historical parity: web.headers ride the 409 conflict bodies of the
-        # start/cancel routes, but NOT their 404 (unknown job).
+        # web.headers ride the 409 conflict bodies of the start/cancel
+        # routes, but not their 404 (unknown job).
         headers = self._web_headers() if ex.status == 409 else None
         return _http_for_action_error(ex, headers)
 
@@ -7065,8 +7063,7 @@ class Cron:
             )
         # the same clamped `limit` the DAG runs route (and the MCP
         # cron_list_runs twin) applies; the retained history is bounded by
-        # RUN_HISTORY_LIMIT, so the default serves it whole, exactly the
-        # old unparameterised behavior.
+        # RUN_HISTORY_LIMIT, so the default serves it whole.
         limit = self._web_int_query(
             request,
             "limit",
@@ -7493,7 +7490,7 @@ class Cron:
             source = "durable"
             infos: list[JobRunInfo] = []
             # oldest first, matching the in-memory fallback's orientation
-            # below: _run_stats is order-independent now, so this is what
+            # below: _run_stats is order-independent, so this is what
             # the window bucketing's "same relative order" property and
             # _run_stats' equal-instant tiebreak read, not a correctness
             # requirement of the "last" fields.
@@ -8034,8 +8031,8 @@ class Cron:
             # refused before auth or handlers run. An operator who explicitly
             # published the API cross-origin via a wildcard
             # Access-Control-Allow-Origin response header keeps that (loudly);
-            # a specific ACAO origin is folded into the allow-list so an
-            # existing deliberate cross-origin dashboard survives the upgrade.
+            # a specific ACAO origin is folded into the allow-list so a
+            # deliberate cross-origin dashboard passes the check.
             allowed_origins = set(web_config.get("allowedOrigins") or [])
             custom_headers = web_config.get("headers") or {}
             acao = next(
@@ -11069,9 +11066,10 @@ class Cron:
         Re-validates the reconciliation's finding at consult time: the
         pid must still exist AND still carry the start time captured when
         it was recorded, so a pid the OS recycled (this consult can come
-        long after boot -- a pause lifting, a deferred launch) never
-        counts. A dead or recycled survivor is forgotten, leaving the
-        caller's own dedupe to decide as if it had never survived.
+        long after boot, such as when a pause lifts or a deferred launch
+        runs) never counts. A dead or recycled survivor is forgotten,
+        leaving the caller's own dedupe to decide as if it had never
+        survived.
         """
         survivor = self._boot_survivors.get(name)
         if survivor is None:
@@ -11088,12 +11086,11 @@ class Cron:
         """Whether a surviving run makes launching ``name`` a double.
 
         True skips the launch: the survivor stays this boot's only copy,
-        whatever the boot marker says -- the marker can be absent while
-        the process is plainly there (an older build wrote none, or the
-        boot instant was unknowable). The skip leaves the marker stream
-        as it was: if the survivor dies and a LATER daemon start finds
-        neither marker nor survivor, re-running errs the documented
-        at-least-once way.
+        whatever the boot marker says (the marker can be absent while
+        the process is plainly there when the boot instant was
+        unknowable). The skip leaves the marker stream as it was: if the
+        survivor dies and a later daemon start finds neither marker nor
+        survivor, re-running errs the documented at-least-once way.
         """
         survivor = self._boot_survivor_running(name)
         if survivor is None:
@@ -12748,13 +12745,13 @@ class Cron:
                     outcome = await step(name, job)
                 except Exception:  # noqa: BLE001 - degrade, never crash
                     # gather() without return_exceptions hands the first
-                    # exception to the awaiter but does NOT cancel the
-                    # siblings, so an unexpected error here used to abort
-                    # the boot tail (dag reconcile, retry re-arm, the job
-                    # API start) while the other workers kept mutating
+                    # exception to the awaiter but does not cancel the
+                    # siblings, so an unexpected error here would otherwise
+                    # abort the boot tail (dag reconcile, retry re-arm, the
+                    # job API start) while the other workers kept mutating
                     # scheduler state behind it. One bad job degrades to a
                     # logged skip, like the per-job arms inside the steps;
-                    # a sick STORE is the separate "timeout" verdict.
+                    # a sick store is the separate "timeout" verdict.
                     logger.exception(
                         "boot scan: job %s failed; skipping it", name
                     )
@@ -13383,15 +13380,14 @@ class Cron:
             info.resource_usage,
             limits=info.limits,
         )
-        # The three watermarks below ADVANCE rather than assign, for the
+        # The three watermarks below advance rather than assign, for the
         # reason last_run does (see _install_run_info): a completion can
         # land older than one already recorded. Their siblings elsewhere
-        # already fold this way (the rehydrate seeds are a max fold, and
-        # _reconcile_open_record advances _last_completed_at), so an
-        # unconditional assignment here was the odd one out: it could
-        # re-stale the SLA reference, reopen an onlyIfLastSucceeded gate a
-        # newer failure had closed, or rewind the retry ladder's
-        # supersede watermark.
+        # fold this way (the rehydrate seeds are a max fold, and
+        # _reconcile_open_record advances _last_completed_at), whereas an
+        # unconditional assignment here could re-stale the SLA reference,
+        # reopen an onlyIfLastSucceeded gate a newer failure had closed,
+        # or rewind the retry ladder's supersede watermark.
         #
         # the maxTimeSinceSuccess reference (see _sla_periodic): every
         # recorded success moves it, whatever path ran the job.
@@ -14221,16 +14217,17 @@ class Cron:
         return result if isinstance(result, str) else None
 
     async def durable_last_completed_at(self, name: str) -> str | None:
-        """The last ACTUAL-run timestamp for a job, from the durable ledger.
+        """The last actual-run timestamp for a job, from the durable ledger.
 
         durable_last_run_at's skip-blind twin, for the superseded-by-run
         guards. Folds ``ranAt`` (written on run rows only), never
         finished_at, which synthetic "skipped" rows also carry: folding
         that would let a pause settle every ladder it is only holding.
-        Pre-``ranAt`` records (finished_at only) are folded in by outcome
-        so an upgrade does not re-arm resolved ladders. Read by the claim
+        Records without ``ranAt`` (finished_at only) are folded in by
+        outcome so they do not re-arm resolved ladders. Read by the claim
         scan and the local retry rehydrate, so both paths see the same
-        truth; the deeper re-read fires only on the pre-ranAt None path.
+        truth; the deeper re-read fires only when the initial fold returns
+        None.
         """
         backend = self.state_backend
         if backend is None:
@@ -14243,9 +14240,8 @@ class Cron:
             records: list[dict[str, Any]], acc: str | None
         ) -> str | None:
             # A row with no ``ranAt`` and outcome != skipped is a real run
-            # from before ``ranAt`` existed (a pause-skip row never took that
-            # older shape); fold its finished_at, a row carrying ``ranAt`` is
-            # already in the derive_max above.
+            # carrying only finished_at; fold its finished_at, whereas a row
+            # carrying ``ranAt`` is already in the derive_max above.
             for rec in records:
                 if "ranAt" in rec or rec.get("outcome") == "skipped":
                     continue
@@ -14259,10 +14255,10 @@ class Cron:
         )
         best = _fold_pre_ranat(recs, best)
         if best is None:
-            # A pre-``ranAt`` ledger buried under RUN_HISTORY_LIMIT
+            # A ledger without ``ranAt`` buried under RUN_HISTORY_LIMIT
             # pause-skip rows folds to None and would re-arm a resolved
-            # ladder. Re-read ONCE, deeper, on this None path only; one
-            # post-upgrade real run keeps this off the steady state.
+            # ladder. Re-read once, deeper, on this None path only; one
+            # real run with ``ranAt`` keeps this off the steady state.
             deeper = max(SLA_SUCCESS_SCAN_LIMIT, self._state_max_runs)
             deep = await backend.list_records(
                 stream, limit=deeper, newest_first=True
