@@ -391,7 +391,8 @@ class DagScheduler:
         # recorded. on_task_finished buffers here; flush_completions (called
         # once the reaper has drained a whole batch of finished jobs) records
         # each run's buffered completions in one document RMW instead of one
-        # per task, so a mapped fan-out finishing together shares a single write.
+        # per task, so a mapped fan-out finishing together shares a single
+        # write.
         self._completion_buffer: dict[RunRef, list[dict[str, Any]]] = {}
         # run ref -> (taskkey, attempt, pokeCount) of every instance this
         # process claimed and was handed to launch, kept until its completion
@@ -3182,7 +3183,8 @@ class DagScheduler:
         sched = dagcfg.schedule_job
         if not isinstance(sched.schedule, CronTab):
             # e.g. the literal "@reboot": no computable instants to replay, so
-            # return a clean refusal (-> 400), not a 500 out of _compute_next_fire.
+            # return a clean refusal (-> 400), not a 500 out of
+            # _compute_next_fire.
             return {
                 "ok": False,
                 "reason": ("the workflow has no future scheduled run times"),
@@ -3317,7 +3319,8 @@ class DagScheduler:
     ) -> list[dict[str, Any]] | None:
         """One list_documents sweep: rebuild the cache from every body. Used
         for the cold cache / large-delta case and when the backend cannot list
-        keys only. Returns None on a hiccup so the caller degrades gracefully."""
+        keys only. Returns None on a hiccup so the caller degrades
+        gracefully."""
         gen = self._summaries_gen
         try:
             docs = await asyncio.wait_for(
